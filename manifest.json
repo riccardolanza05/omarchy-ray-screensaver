@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "id": "io.github.riccardolanza05.omarchy-ray-screensaver",
-  "name": "Ray Screensaver",
+  "name": "Drift",
   "version": "1.0.0",
   "author": "riccardolanza05",
   "license": "MIT",
-  "description": "A themed point-cloud screensaver with three rotating scenes (RAY, BIRD, WING), one per activation. Every dot follows your current Omarchy theme colours.",
+  "description": "A minimalist particle-animation screensaver, in your current Omarchy theme's colours, with three rotating scenes.",
   "kinds": [
     "service"
   ],
