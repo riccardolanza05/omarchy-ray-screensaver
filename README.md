@@ -120,15 +120,29 @@ omarchy-shell ray-screensaver simulateLock
   square vs. round is not visually distinguishable at the ~1px size those
   render at, and skipping path construction for the vast majority of points
   is what keeps RAY/BIRD/WING's ~1700 points at a steady ~60fps.
-- **FLOCK's simulation**: 500 agents, each with its own position and
-  velocity carried across frames. Every frame, each agent looks at nearby
-  flockmates — found via a spatial hash grid keyed by cell, not an all-pairs
-  scan, so cost stays close to O(n) — and steers by three Reynolds rules
-  (separation, alignment, cohesion), each a `steer = desired − velocity`
-  seek force limited to a maximum, weighted and summed exactly like the
-  Nature of Code reference this is ported from. Borders wrap, same as that
-  reference. Physics is stepped once per 16ms tick, decoupled from
-  painting, which just draws whatever the simulation's current state is.
+- **FLOCK's simulation**: 1700 agents (matching RAY/BIRD/WING's point
+  count), spawned clustered near the centre, each with its own position
+  and velocity carried across frames. Every frame, each agent looks at
+  nearby flockmates for separation and alignment — found via a spatial
+  hash grid keyed by cell, not an all-pairs scan — and steers by three
+  Reynolds rules, each a `steer = desired − velocity` seek force limited
+  to a maximum, weighted and summed the same way as the Nature of Code
+  reference this is ported from. Cohesion is the exception: every agent
+  seeks the whole flock's single centroid (computed once per frame, O(n))
+  rather than a locally-weighted average of nearby agents — simpler,
+  cheaper at this point count, and what actually keeps it one flock
+  instead of several permanent clusters (a shared or even a long local
+  radius either let sub-groups drift out of range of each other, or degrades
+  toward an all-pairs scan once the flock is packed tighter than that
+  radius, which it reliably is). A minimum speed alongside the maximum
+  keeps it lively (agents
+  cruise around a third of top speed on average otherwise, since the three
+  steering forces partly cancel). Edges are a soft steer-back, not a
+  wraparound — a single cohesive flock straddling a wrap seam renders as
+  two blobs at opposite edges of the screen, so this stays contained
+  instead, the same "no visible seam, ever" RAY/BIRD/WING already have.
+  Physics is stepped once per 16ms tick, decoupled from painting, which
+  just draws whatever the simulation's current state is.
 - **Colour**: read once per frame from the `qs.Commons` `Color` singleton
   that the rest of the Omarchy shell already uses, so a day/night theme
   switch is picked up live, mid-session.
@@ -170,11 +184,24 @@ the #つぶやきProcessing lineage above. It's a direct, credited port of
 ([source](https://github.com/nature-of-code/noc-examples-processing/blob/master/chp06_agents/NOC_6_09_Flocking/Boid.pde)),
 itself an implementation of **boids** (Craig Reynolds, 1986): separation,
 alignment and cohesion, the classic three-rule flocking algorithm — same
-per-rule weights (separation ×1.5, alignment/cohesion ×1) and wraparound
-edges as that reference; only the neighbour search (a spatial hash grid
-instead of an all-pairs scan, for performance at a few hundred agents) and
-the rendering (this plugin's round dots instead of oriented triangles)
-differ. Tracked as
+per-rule weights (separation ×1.5, alignment/cohesion ×1) and the same
+`steer = desired − velocity` seek force behind every rule. A few things
+don't carry over verbatim, added after live testing surfaced real
+problems: cohesion always targets the whole flock's single centroid
+instead of a locally-weighted average within some "neighbordist" — a
+shared or even a long local radius either let sub-groups drift out of
+range of each other or, once this plugin's actual point count (1700,
+matching RAY/BIRD/WING) packed the flock tighter than that radius,
+degraded toward an all-pairs scan; the flock split into several permanent
+clusters at least once along the way, which the centroid target rules out
+entirely rather than just making less likely. Edges are a soft steer-back
+instead of the reference's wraparound — a single cohesive flock straddling
+a wrap seam renders as two blobs at opposite edges, which is what caused
+that same split while crossing an edge, under the wraparound this used to
+have. Agents also spawn clustered near the centre instead of scattered
+across the whole screen, and separation/alignment neighbour search uses a
+spatial hash grid instead of an all-pairs scan. Rendering is this plugin's
+round dots instead of the reference's oriented triangles. Tracked as
 [issue #1](https://github.com/riccardolanza05/omarchy-ray-screensaver/issues/1)
 before being built.
 

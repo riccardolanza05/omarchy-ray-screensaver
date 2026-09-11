@@ -160,19 +160,55 @@ Item {
     // pushed away from crowding neighbours; alignment's is the average
     // neighbour velocity; cohesion's is the average neighbour position.
     // velocity += acceleration, clamped to maxSpeed, then position +=
-    // velocity, same as the reference's update(). Borders wrap (teleport
-    // to the opposite edge) exactly like the reference's borders() —
-    // ordinary for a boids sim (every reference implementation found for
-    // issue #1 does the same), and with hundreds of agents on screen one
-    // going around the edge doesn't read as a cut in the scene itself.
+    // velocity, same as the reference's update().
     //
-    // The one thing NOT ported verbatim is neighbour lookup: the
-    // reference scans every other boid for each of the three rules
-    // (O(n) × 3 per boid); this uses a spatial hash grid (cell size = the
-    // larger of the two radii) built once per frame, so it stays close to
-    // O(n) at the higher agent counts this plugin already used for the
-    // formula scenes' point clouds.
-    readonly property int flockCount: 500
+    // Four departures from a verbatim port, all added after live testing
+    // on real hardware surfaced real problems a Node-only prototype
+    // hadn't (see issue #1's research notes for the full trail):
+    //
+    // 1. Cohesion targets the whole flock's centroid (computed once per
+    //    frame, O(n)) unconditionally, instead of a per-boid weighted
+    //    average over nearby boids within some "neighbordist" the way the
+    //    reference does. Earlier attempts tried a local cohesion radius
+    //    (shared with alignment, then a separate long-range one, then a
+    //    conditional centroid fallback for stragglers) and every version
+    //    either let the flock split into permanent sub-clusters (a small
+    //    shared radius: agents outside it feel no pull back toward the
+    //    group at all) or, at this plugin's actual point count (1700,
+    //    matching RAY/BIRD/WING), made the per-boid neighbour scan
+    //    degrade toward O(n²) once the flock packs tighter than the
+    //    cohesion radius — which it does, reliably, once cohesive. A
+    //    single global centroid target is both O(n) total and a strictly
+    //    stronger guarantee: there is no radius for a sub-group to drift
+    //    outside of.
+    // 2. No wraparound. The reference (and every other flocking reference
+    //    checked for issue #1) teleports agents to the opposite edge, but
+    //    that assumes many small, independent clusters where one agent
+    //    quietly reappearing elsewhere is unremarkable. A single cohesive
+    //    flock straddling that seam instead renders as two blobs at
+    //    opposite edges of the screen — observed live, together with (1)
+    //    above, as a flock that split in two while crossing an edge and
+    //    never re-merged — so this steers gently back inward near an edge
+    //    instead (same "no visible seam, ever" property RAY/BIRD/WING
+    //    already have). The hard clamp underneath that soft steer (a
+    //    safety net for a stray large dt) zeroes the outward velocity
+    //    component instead of just clamping position, so a fast agent
+    //    can't smear along the wall.
+    // 3. A minimum speed, alongside the maximum: without it agents cruise
+    //    around 35% of top speed on average (the three steering forces
+    //    partially cancel most of the time), which reads as sluggish
+    //    regardless of how high the maximum is raised.
+    // 4. Agents spawn clustered in a disc near the centre instead of
+    //    scattered uniformly across the whole screen, so the flock starts
+    //    as one group instead of needing to discover itself out of
+    //    scattered fragments.
+    //
+    // Separation and alignment neighbour lookup also isn't ported
+    // verbatim: the reference scans every other boid for each rule
+    // (O(n) per rule); this uses a spatial hash grid, cell size =
+    // flockAlignR, so a 3x3 block already covers both radii — see
+    // stepFlock().
+    readonly property int flockCount: 1700
     property bool flockReady: false
     property bool flockNeedsReset: true
     property var flockX: []
@@ -181,30 +217,41 @@ Item {
     property var flockVY: []
     // Tuned as fractions of min(width, height) in initFlock() so the flock
     // reads the same regardless of monitor resolution — same idea as the
-    // formula scenes' `ref`/`scale` in onPaint below. separationR:neighborR
-    // keeps the reference's 25:50 (1:2) ratio; alignment and cohesion share
-    // one neighbourhood radius, same as the reference.
+    // formula scenes' `ref`/`scale` in onPaint below.
     property real flockSeparationR: 0
-    property real flockNeighborR: 0
+    property real flockAlignR: 0
     property real flockCell: 0
     property real flockMaxSpeed: 0
+    property real flockMinSpeed: 0
     property real flockMaxForce: 0
+    property real flockMargin: 0
+    property real flockEdgeForce: 0
 
     function initFlock(w, h) {
       var ref = Math.max(1, Math.min(w, h))
-      flockSeparationR = ref * 0.020
-      flockNeighborR = ref * 0.045
-      flockCell = Math.max(flockSeparationR, flockNeighborR)
-      flockMaxSpeed = ref * 0.10
-      flockMaxForce = ref * 0.12
+      flockSeparationR = ref * 0.032
+      flockAlignR = ref * 0.05
+      flockCell = flockAlignR
+      flockMaxSpeed = ref * 0.28
+      flockMinSpeed = flockMaxSpeed * 0.6
+      flockMaxForce = ref * 0.34
+      // Sized to the actual stopping distance at flockMaxSpeed
+      // (v²/(2·edgeForce/mass), edgeForce averaging ~half its peak over
+      // the ramp) — a margin much narrower than this let agents reach the
+      // hard clamp at full speed and smear along the wall instead of
+      // turning away from it in time.
+      flockMargin = ref * 0.20
+      flockEdgeForce = flockMaxForce * 3.0
 
       var n = flockCount
       var X = [], Y = [], VX = [], VY = []
+      var cx0 = w / 2, cy0 = h / 2, spawnR = ref * 0.12
       for (var i = 0; i < n; i++) {
-        X.push(Math.random() * w)
-        Y.push(Math.random() * h)
+        var a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * spawnR
+        X.push(cx0 + Math.cos(a) * r)
+        Y.push(cy0 + Math.sin(a) * r)
         var ang = Math.random() * Math.PI * 2
-        var sp = flockMaxSpeed * (0.3 + Math.random() * 0.7)
+        var sp = flockMaxSpeed * (0.5 + Math.random() * 0.5)
         VX.push(Math.cos(ang) * sp)
         VY.push(Math.sin(ang) * sp)
       }
@@ -244,8 +291,13 @@ Item {
       }
 
       var sepR2 = flockSeparationR * flockSeparationR
-      var neighR2 = flockNeighborR * flockNeighborR
-      var maxR2 = Math.max(sepR2, neighR2)
+      var aliR2 = flockAlignR * flockAlignR
+
+      // Whole-flock centroid, O(n) — cohesion's target for every agent,
+      // unconditionally (see the class-level comment, point 1).
+      var centroidX = 0, centroidY = 0
+      for (var ci = 0; ci < n; ci++) { centroidX += X[ci]; centroidY += Y[ci] }
+      centroidX /= n; centroidY /= n
 
       var newVX = new Array(n), newVY = new Array(n)
 
@@ -255,8 +307,9 @@ Item {
 
         var sepX = 0, sepY = 0, sepCount = 0
         var sumVX = 0, sumVY = 0, aliCount = 0
-        var sumX = 0, sumY = 0, cohCount = 0
 
+        // Short-range window: separation + alignment (cell = flockAlignR,
+        // so a 3x3 block already covers both radii).
         for (var gx = cx - 1; gx <= cx + 1; gx++) {
           for (var gy = cy - 1; gy <= cy + 1; gy++) {
             var nb = grid[gx + "," + gy]
@@ -266,15 +319,12 @@ Item {
               if (j === i) continue
               var dx = xi - X[j], dy = yi - Y[j]
               var d2 = dx * dx + dy * dy
-              if (d2 > maxR2 || d2 <= 0.0001) continue
+              if (d2 <= 0.0001) continue
               // Separation: away from the neighbour, weighted by 1/distance
               // (diff.normalize().div(d) in the reference — the same as
               // dividing the raw offset by d²).
               if (d2 < sepR2) { sepX += dx / d2; sepY += dy / d2; sepCount++ }
-              if (d2 < neighR2) {
-                sumVX += VX[j]; sumVY += VY[j]; aliCount++
-                sumX += X[j]; sumY += Y[j]; cohCount++
-              }
+              if (d2 < aliR2) { sumVX += VX[j]; sumVY += VY[j]; aliCount++ }
             }
           }
         }
@@ -289,14 +339,23 @@ Item {
           var a = flockSeek(sumVX / aliCount, sumVY / aliCount, vxi, vyi)
           ax += a[0]; ay += a[1]
         }
-        if (cohCount > 0) {
-          var c = flockSeek(sumX / cohCount - xi, sumY / cohCount - yi, vxi, vyi)
-          ax += c[0]; ay += c[1]
-        }
+        // Cohesion: unconditionally the whole flock's centroid (see the
+        // class-level comment, point 1) — no radius, no neighbour scan.
+        var c = flockSeek(centroidX - xi, centroidY - yi, vxi, vyi)
+        ax += c[0]; ay += c[1]
+
+        // Soft containment — steer back in near an edge instead of
+        // wrapping (see the class-level comment, point 2).
+        var m = flockMargin, ef = flockEdgeForce
+        if (xi < m) ax += ef * (1 - xi / m)
+        else if (xi > w - m) ax -= ef * (1 - (w - xi) / m)
+        if (yi < m) ay += ef * (1 - yi / m)
+        else if (yi > h - m) ay -= ef * (1 - (h - yi) / m)
 
         var vx = vxi + ax * dt, vy = vyi + ay * dt
         var sp = Math.sqrt(vx * vx + vy * vy)
         if (sp > flockMaxSpeed) { vx = vx / sp * flockMaxSpeed; vy = vy / sp * flockMaxSpeed }
+        else if (sp > 0.0001 && sp < flockMinSpeed) { vx = vx / sp * flockMinSpeed; vy = vy / sp * flockMinSpeed }
         newVX[i] = vx; newVY[i] = vy
       }
 
@@ -304,9 +363,14 @@ Item {
         VX[k] = newVX[k]; VY[k] = newVY[k]
         X[k] += VX[k] * dt
         Y[k] += VY[k] * dt
-        // Wraparound, same as the reference's borders().
-        if (X[k] < 0) X[k] += w; else if (X[k] > w) X[k] -= w
-        if (Y[k] < 0) Y[k] += h; else if (Y[k] > h) Y[k] -= h
+        // Hard clamp underneath the soft containment above — a safety
+        // net for a stray large dt, not the normal path. Zeroes the
+        // outward velocity component instead of just clamping position,
+        // so a fast agent can't smear along the wall.
+        if (X[k] < 0) { X[k] = 0; if (VX[k] < 0) VX[k] = 0 }
+        else if (X[k] > w) { X[k] = w; if (VX[k] > 0) VX[k] = 0 }
+        if (Y[k] < 0) { Y[k] = 0; if (VY[k] < 0) VY[k] = 0 }
+        else if (Y[k] > h) { Y[k] = h; if (VY[k] > 0) VY[k] = 0 }
       }
     }
 
