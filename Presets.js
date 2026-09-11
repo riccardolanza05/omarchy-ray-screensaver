@@ -13,22 +13,39 @@ var BASE = {
 
 var PRESETS = [
   {
-    name: "RAY", zoom: 1.18, offsetY: 0,
+    name: "RAY", kind: "ray", zoom: 1.18, offsetY: 0,
     over: { AMP: 8.69, WIND: 38.26, VS: 16.38, VO: 11.75, QA: 1.65, QF: 3.47,
       SP: 38.62, TH: 9.63, ORB: 47.63, YS: 7.34, PD: 10.77, PSP: 2.73,
       WV: 7.21, WSP: 3.79, DOF: 5.98, RF: 3.04, DPH: 3.18, CX: 201, CY: 161 }
   },
   {
-    name: "BIRD", zoom: 1.08, offsetY: 0,
+    name: "BIRD", kind: "ray", zoom: 1.08, offsetY: 0,
     over: { AMP: 9.07, WIND: 73.68, VS: 15.45, VO: 25.38, QA: 4.98, QF: 5.32,
       SP: 44.61, TH: 9.37, ORB: 16.84, YS: 21.85, PD: 12.64, PSP: 3.52,
       WV: 10.31, WSP: 2, DOF: 3.3, RF: 10.2, DPH: 2.76, CX: 200, CY: -261 }
   },
   {
-    name: "WING", zoom: 1.18, offsetY: 0,
+    name: "WING", kind: "ray", zoom: 1.18, offsetY: 0,
     over: { AMP: 7.18, WIND: 47.39, VS: 16.24, VO: 28.23, QA: 3.58, QF: 5.84,
       SP: 38.57, TH: 12.2, ORB: 25.09, YS: 10.8, PD: 15.4, PSP: 3.23,
       WV: 12.94, WSP: 1.19, DOF: 8.59, RF: 10.94, DPH: 0.79, CX: 205, CY: -5 }
+  },
+  // --- experimental scenes, not part of the setupHeroRay formula — see
+  // README "Trying other animation styles" for where these came from ---
+  {
+    // Grid of dots rippled by two summed sine waves — the classic
+    // three.js "particles waves" example (a stock demo pattern, not any
+    // one person's original work): height(gx,gy,t) = sin(gx*f+t) +
+    // sin(gy*f+t). Height drives both the dot's vertical offset and its
+    // brightness/size, so wave crests visibly pop.
+    name: "WAVE", kind: "wave", zoom: 1.0, offsetY: 0, over: {}
+  },
+  {
+    // Phyllotaxis / Vogel spiral: point i sits at angle = i * goldenAngle,
+    // radius = sqrt(i) * spacing — the sunflower-seed-head pattern, public
+    // domain math with no single author. Slowly rotated and breathing
+    // (radius pulses with sin(t)) to animate it.
+    name: "SPIRAL", kind: "spiral", zoom: 1.0, offsetY: 0, over: {}
   }
 ]
 
@@ -37,7 +54,7 @@ function resolve(index) {
   var values = {}
   for (var k in BASE) values[k] = BASE[k]
   for (var k2 in p.over) values[k2] = p.over[k2]
-  return { name: p.name, zoom: p.zoom, offsetY: p.offsetY, values: values }
+  return { name: p.name, kind: p.kind || "ray", zoom: p.zoom, offsetY: p.offsetY, values: values }
 }
 
 function indexByName(name, fallback) {

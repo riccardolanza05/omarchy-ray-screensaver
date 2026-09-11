@@ -83,6 +83,16 @@ Item {
     logEvent("screensaver-shown", "preset=" + root.screensaverPresetIndex)
   }
 
+  // Shows an arbitrary preset index without touching the RAY/BIRD/WING
+  // rotation counter above — for trying out experimental scenes (see
+  // Presets.js) via the previewIndex IPC call without disturbing it.
+  function launchScreensaverAt(idx) {
+    root.screensaverStartedThisCycle = true
+    root.screensaverPresetIndex = idx
+    root.screensaverActive = true
+    logEvent("screensaver-shown", "preset=" + idx + " (pinned)")
+  }
+
   // Every screensaverHoldSeconds while shown, move every monitor's surface to
   // the next preset at the same instant (see Service.qml's Variants block —
   // each PanelWindow's ScreensaverView just mirrors this property).
@@ -301,6 +311,16 @@ Item {
     // a menu entry or a keybinding, same spirit as System > Screensaver.
     function preview(): string {
       root.launchScreensaver()
+      return "ok"
+    }
+
+    // Shows preset index N directly — for trying out scenes beyond the
+    // three in the RAY/BIRD/WING rotation (see Presets.js) without
+    // disturbing that rotation's own counter.
+    function previewIndex(idx: string): string {
+      var n = parseInt(idx, 10)
+      if (isNaN(n) || n < 0) return "bad-index"
+      root.launchScreensaverAt(n)
       return "ok"
     }
   }

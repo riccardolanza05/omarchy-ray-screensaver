@@ -45,6 +45,20 @@ omarchy-shell ray-screensaver disable   # hide it / pause idle handling
 omarchy-shell ray-screensaver enable    # resume
 ```
 
+## Trying other animation styles
+
+Two experimental scenes outside the setupHeroRay formula live in `Presets.js`
+(index 3 and 4) — a grid rippled by two summed sine waves (the classic
+three.js "particles waves" demo pattern) and a phyllotaxis/Vogel spiral (the
+sunflower-seed-head pattern), both public-domain math rather than a copy of
+any one person's sketch. They're not part of the RAY→BIRD→WING rotation —
+try them without disturbing it:
+
+```sh
+omarchy-shell ray-screensaver previewIndex 3   # WAVE
+omarchy-shell ray-screensaver previewIndex 4   # SPIRAL
+```
+
 ## What this is (and isn't) a port of
 
 The formula is a 1:1 read of `setupHeroRay()` in the site's

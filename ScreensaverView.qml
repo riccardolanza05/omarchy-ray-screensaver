@@ -74,13 +74,107 @@ Item {
     renderTarget: Canvas.FramebufferObject
     renderStrategy: Canvas.Cooperative
 
+    // Stamps one point's octagon into the currently-open path — shared by
+    // every scene's paint function below.
+    function dot(ctx, x, y, r) {
+      var ox = root.octX, oy = root.octY
+      ctx.moveTo(x + ox[0] * r, y + oy[0] * r)
+      for (var v = 1; v < 8; v++) ctx.lineTo(x + ox[v] * r, y + oy[v] * r)
+    }
+
+    // The setupHeroRay() formula (see the file header). `g` bundles the
+    // shared per-frame setup every scene needs (origin/scale/colours/etc.)
+    function paintRay(ctx, preset, t, fade, g) {
+      var v = preset.values
+      var AMP = v.AMP, WIND = v.WIND, VS = v.VS, VO = v.VO, QA = v.QA, QF = v.QF
+      var SP = v.SP, TH = v.TH, ORB = v.ORB, YS = v.YS, PD = v.PD, PSP = v.PSP
+      var WV = v.WV, WSP = v.WSP, DOF = v.DOF, RF = v.RF, DPH = v.DPH
+      var CX = v.CX, CY = v.CY, offsetY = preset.offsetY
+      var STRIDE = 6000.0 / root.pointCount
+      var cos = Math.cos, sin = Math.sin, sqrt = Math.sqrt
+
+      for (var pass = 0; pass < 2; pass++) {
+        var bright = pass === 1
+        ctx.fillStyle = Qt.rgba(g.fg.r, g.fg.g, g.fg.b, bright ? g.alphaBright : g.alphaFaint)
+        ctx.beginPath()
+        for (var i = 0; i < root.pointCount; i++) {
+          if (((i % 13) === 0) !== bright) continue
+          var si = i * STRIDE
+          var y = si / 235.0
+          var k = (AMP + cos(si / PD - t * PSP)) * cos(si / WIND)
+          var e = y / VS - VO
+          var distance = sqrt(k * k + e * e) + sin(e / WV + t / WSP) - DOF
+          var q = QA * sin(k * QF) - y / SP * k * (TH + k * sin(cos(e) * RF - distance * DPH + t))
+          var angle = distance - t
+          var x = g.originX + (q + ORB * cos(angle) + CX) * g.scale
+          var py = g.originY + (q * sin(angle) + distance * YS + CY + offsetY) * g.scale
+          if (x < 0 || x > g.w || py < 0 || py > g.h) continue
+          dot(ctx, x, py, (i % 29) === 0 ? g.radiusLarge : g.radiusSmall)
+        }
+        ctx.fill()
+      }
+    }
+
+    // A grid of dots rippled by two summed sine waves — the classic
+    // three.js "particles waves" demo pattern: height(gx,gy,t) =
+    // sin(gx*f+t) + sin(gy*f+t). Height bobs each dot vertically and (since
+    // it also decides which of the two passes a dot falls into) makes wave
+    // crests render bigger and brighter — the closest a flat single-colour
+    // canvas gets to the original's 3D lighting.
+    function paintWave(ctx, t, g) {
+      var cols = Math.round(Math.sqrt(root.pointCount))
+      var rows = Math.ceil(root.pointCount / cols)
+      var sin = Math.sin
+      for (var pass = 0; pass < 2; pass++) {
+        var bright = pass === 1
+        ctx.fillStyle = Qt.rgba(g.fg.r, g.fg.g, g.fg.b, bright ? g.alphaBright : g.alphaFaint)
+        ctx.beginPath()
+        for (var i = 0; i < root.pointCount; i++) {
+          var gx = i % cols, gy = Math.floor(i / cols)
+          var nx = gx - (cols - 1) / 2, ny = gy - (rows - 1) / 2
+          var height = sin(nx * 0.35 + t * 0.9) + sin(ny * 0.35 + t * 0.7)   // -2..2
+          var hn = (height + 2) / 4   // 0..1
+          if ((hn > 0.55) !== bright) continue
+          var x = g.centerX + (nx * 12) * g.scale
+          var py = g.centerY + (ny * 12 + height * 6) * g.scale
+          if (x < 0 || x > g.w || py < 0 || py > g.h) continue
+          dot(ctx, x, py, hn > 0.55 ? g.radiusLarge : g.radiusSmall)
+        }
+        ctx.fill()
+      }
+    }
+
+    // Phyllotaxis / Vogel spiral — the sunflower-seed-head pattern (public
+    // domain math, no single author): point i sits at angle = i *
+    // goldenAngle, radius = spacing * sqrt(i). Rotated over time and
+    // breathing gently (radius pulses with sin(t)).
+    function paintSpiral(ctx, t, g) {
+      var goldenAngle = 2.399963
+      var pulse = 1 + 0.15 * Math.sin(t * 0.5)
+      var cos = Math.cos, sin = Math.sin, sqrt = Math.sqrt
+      for (var pass = 0; pass < 2; pass++) {
+        var bright = pass === 1
+        ctx.fillStyle = Qt.rgba(g.fg.r, g.fg.g, g.fg.b, bright ? g.alphaBright : g.alphaFaint)
+        ctx.beginPath()
+        for (var i = 0; i < root.pointCount; i++) {
+          if (((i % 13) === 0) !== bright) continue
+          var angle = i * goldenAngle + t * 0.15
+          var radius = 2.2 * sqrt(i) * pulse
+          var x = g.centerX + (radius * cos(angle)) * g.scale
+          var py = g.centerY + (radius * sin(angle)) * g.scale
+          if (x < 0 || x > g.w || py < 0 || py > g.h) continue
+          dot(ctx, x, py, (i % 29) === 0 ? g.radiusLarge : g.radiusSmall)
+        }
+        ctx.fill()
+      }
+    }
+
     onPaint: {
       var ctx = getContext("2d")
       var w = width, h = height
       if (w <= 0 || h <= 0) return
 
       var preset = Presets.resolve(root.presetIndex)
-      var v = preset.values
       var secs = root.elapsed(root.presetStartedAt)
       var t = secs * 1.05   // seconds -> the site's slow clock (1000 * 0.00105)
 
@@ -101,52 +195,26 @@ Item {
       var scale = Math.min(w / 400.0, h / 400.0) * zoom
       var ref = Math.min(w, h)
       var panX = -0.03 * ref, panY = 0.05 * ref
-      var originX = (w - 400.0 * scale) / 2.0 + panX
-      var originY = (h - 400.0 * scale) / 2.0 + panY
-
       var unit = Math.pow(Math.max(1.0, scale), 0.62)
-      var radiusSmall = Math.max(0.4, 0.475 * unit)
-      var radiusLarge = Math.max(0.4, 0.75 * unit)
 
-      var AMP = v.AMP, WIND = v.WIND, VS = v.VS, VO = v.VO, QA = v.QA, QF = v.QF
-      var SP = v.SP, TH = v.TH, ORB = v.ORB, YS = v.YS, PD = v.PD, PSP = v.PSP
-      var WV = v.WV, WSP = v.WSP, DOF = v.DOF, RF = v.RF, DPH = v.DPH
-      var CX = v.CX, CY = v.CY, offsetY = preset.offsetY
-
-      var STRIDE = 6000.0 / root.pointCount
-      var alphaFaint = 0.27 * 0.84 * fade
-      var alphaBright = 0.48 * 0.84 * fade
-      var cos = Math.cos, sin = Math.sin, sqrt = Math.sqrt
-      var ox = root.octX, oy = root.octY
-
-      // Two passes (faint, then bright), each building ONE path out of every
-      // point's 8-sided dot (moveTo + 7 lineTo, no intermediate fill) and
-      // filling it once at the end — one fill() per pass instead of
-      // thousands, and octagons instead of arcs (see octX/octY above).
-      for (var pass = 0; pass < 2; pass++) {
-        var bright = pass === 1
-        ctx.fillStyle = Qt.rgba(fg.r, fg.g, fg.b, bright ? alphaBright : alphaFaint)
-        ctx.beginPath()
-        for (var i = 0; i < root.pointCount; i++) {
-          if (((i % 13) === 0) !== bright) continue
-          var si = i * STRIDE
-          var y = si / 235.0
-          var k = (AMP + cos(si / PD - t * PSP)) * cos(si / WIND)
-          var e = y / VS - VO
-          var kk = k * k, ee = e * e
-          var distance = sqrt(kk + ee) + sin(e / WV + t / WSP) - DOF
-          var q = QA * sin(k * QF) - y / SP * k * (TH + k * sin(cos(e) * RF - distance * DPH + t))
-          var angle = distance - t
-          var x = originX + (q + ORB * cos(angle) + CX) * scale
-          var py = originY + (q * sin(angle) + distance * YS + CY + offsetY) * scale
-          if (x < 0 || x > w || py < 0 || py > h) continue
-          var big = (i % 29) === 0
-          var r = big ? radiusLarge : radiusSmall
-          ctx.moveTo(x + ox[0] * r, py + oy[0] * r)
-          for (var v = 1; v < 8; v++) ctx.lineTo(x + ox[v] * r, py + oy[v] * r)
-        }
-        ctx.fill()
+      var g = {
+        w: w, h: h, fg: fg, scale: scale,
+        // originX/originY assume the ray formula's own coordinate convention
+        // (roughly a 0..400 box). Scenes with 0-centred coordinates — wave,
+        // spiral — use centerX/centerY instead.
+        originX: (w - 400.0 * scale) / 2.0 + panX,
+        originY: (h - 400.0 * scale) / 2.0 + panY,
+        centerX: w / 2.0 + panX,
+        centerY: h / 2.0 + panY,
+        radiusSmall: Math.max(0.4, 0.475 * unit),
+        radiusLarge: Math.max(0.4, 0.75 * unit),
+        alphaFaint: 0.27 * 0.84 * fade,
+        alphaBright: 0.48 * 0.84 * fade
       }
+
+      if (preset.kind === "wave") paintWave(ctx, t, g)
+      else if (preset.kind === "spiral") paintSpiral(ctx, t, g)
+      else paintRay(ctx, preset, t, fade, g)
     }
   }
 
