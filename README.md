@@ -6,6 +6,11 @@ dots that drifts and folds into shifting shapes, always drawn in your
 
 ![Drift preview](preview.png)
 
+*The marketplace card above is a still — this is what it actually looks
+like (RAY, real capture, not sped up):*
+
+![Drift, RAY, in motion](demo.gif)
+
 > **Adapts to your theme, automatically.** Every dot is drawn in a single
 > colour taken live from your active Omarchy theme (the same
 > `Color.foreground` / `Color.background` the bar and lock screen use) — no
