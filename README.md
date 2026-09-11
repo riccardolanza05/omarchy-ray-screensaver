@@ -68,8 +68,8 @@ based on, kept out here too for consistency.
   keeps running (`keepLoaded: true` keeps this plugin's state alive between
   idle cycles, but a full shell restart resets it) — it does not survive a
   logout/login the way the desktop-only prototype's on-disk state file did.
-- No per-user tuning knobs yet (point count, zoom, hold duration, trail
-  strength) — everything is fixed at the values that looked right during
+- No per-user tuning knobs yet (point count, zoom, hold duration) —
+  everything is fixed at the values that looked right during
   development. Contributions welcome.
 
 ## License

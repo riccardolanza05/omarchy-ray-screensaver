@@ -17,7 +17,6 @@ Item {
   // none of them decide on their own when to move to the next preset.
   property int presetIndex: 0
   property real fadeSeconds: 0.22
-  property real trail: 0.6          // background repaint alpha; 1.0 = hard clear
   property bool active: false       // host toggles this to show/hide
   property real graceSeconds: 2.5   // ignore input this long after activating
 
@@ -25,14 +24,12 @@ Item {
 
   property real presetStartedAt: 0
   property real activatedAt: 0
-  property bool forceClear: true
 
   function elapsed(from) { return (Date.now() - from) / 1000 }
 
   function activate() {
     presetStartedAt = Date.now()
     activatedAt = Date.now()
-    forceClear = true
     canvas.requestPaint()
   }
 
@@ -43,10 +40,7 @@ Item {
   }
 
   onActiveChanged: if (active) activate()
-  onPresetIndexChanged: if (root.active) {
-    presetStartedAt = Date.now()
-    forceClear = true
-  }
+  onPresetIndexChanged: if (root.active) presetStartedAt = Date.now()
 
   Timer {
     id: frameTimer
@@ -80,10 +74,8 @@ Item {
 
       var fg = Color.foreground
       var bg = Color.background
-      var trailA = root.forceClear ? 1.0 : root.trail
-      root.forceClear = false
       ctx.globalAlpha = 1.0
-      ctx.fillStyle = Qt.rgba(bg.r, bg.g, bg.b, trailA)
+      ctx.fillStyle = Qt.rgba(bg.r, bg.g, bg.b, 1.0)
       ctx.fillRect(0, 0, w, h)
 
       var zoom = preset.zoom * 2.0   // DEFAULT_ZOOM: the site's ~270px band, enlarged
