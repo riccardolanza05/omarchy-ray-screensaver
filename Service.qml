@@ -28,13 +28,13 @@ Item {
   // runs, resolved once here rather than looked up by name (PATH) at
   // invocation time. Idle/lock/wake is a security-sensitive boundary — an
   // unqualified command name there is one a compromised PATH could
-  // redirect, and a login shell (bash -l) sources profile/rc files that
-  // could do the same. Every Process below uses these directly and, for
-  // the lock/wake calls, no shell at all (they take no arguments and need
-  // no shell features).
+  // redirect. Every Process below uses these directly with a plain
+  // argument vector — no shell at all, anywhere in this file (see the
+  // stay-awake FileView further down for why that state no longer needs
+  // one either).
   readonly property string lockBin: "/usr/share/omarchy/bin/omarchy-system-lock"
   readonly property string wakeBin: "/usr/share/omarchy/bin/omarchy-system-wake"
-  readonly property string bashBin: "/usr/bin/bash"
+  readonly property string mkdirBin: "/usr/bin/mkdir"
   readonly property int defaultScreensaverSeconds: 150
   readonly property int defaultLockSeconds: 300
   readonly property var idleConfig: shell && shell.shellConfig && shell.shellConfig.idle
@@ -48,8 +48,6 @@ Item {
 
   property bool stayAwake: false
   property bool stayAwakeStateLoaded: false
-  property bool hasPendingStayAwakePersist: false
-  property bool pendingStayAwakePersist: false
   property bool idledThisCycle: false
   property bool screensaverStartedThisCycle: false
   property string lastEvent: "starting"
@@ -82,7 +80,7 @@ Item {
   }
 
   // `argv` is a plain argument vector (executable first) run directly, with
-  // no shell involved — see the comment on lockBin/wakeBin/bashBin above.
+  // no shell involved — see the comment on lockBin/wakeBin/mkdirBin above.
   function runProcess(process, label, argv) {
     if (process.running) {
       logEvent("process-skip", label + " already running")
@@ -200,41 +198,18 @@ Item {
     })
   }
 
-  // Non-login shell (-c, not -l — no profile/rc sourcing), absolute paths
-  // for bash itself and every coreutils call inside it, and the directory
-  // and file paths passed in as arguments rather than read from the
-  // process's own $HOME (root.home already comes from Quickshell.env, not
-  // the shell's inherited environment). Touches or removes the marker file
-  // only when it is safe to: absent, or present as a *regular file we own,
-  // not a symlink* (`-O` is bash's own effective-owner test) — so a symlink
-  // planted at that exact path can't make this service follow it onto an
-  // unrelated file.
-  readonly property string stayAwakeWriteScript: '
-set -e
-dir="$1"; f="$2"; mode="$3"
-/usr/bin/mkdir -p -- "$dir"
-safe=0
-if [ ! -e "$f" ]; then safe=1
-elif [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ]; then safe=1
-fi
-[ "$safe" = 1 ] || exit 0
-if [ "$mode" = on ]; then /usr/bin/touch -- "$f"; else /usr/bin/rm -f -- "$f"; fi
-'
-
+  // Persists through stayAwakeFile (a FileView, see further down) instead
+  // of a shell script that checks the marker path is safe and then acts
+  // on it in a separate step — a security reviewer correctly pointed out
+  // that gap is a TOCTOU race (the path can be swapped between the check
+  // and the touch/rm that follows it), and a "check more carefully first"
+  // fix cannot close a race that is inherent to check-then-act in the
+  // first place. FileView's own atomic write (setText(), backed by Qt's
+  // QSaveFile: write a new temp file, then rename it over the target) has
+  // no such gap — there is no separate check to race against; it either
+  // writes the file or it doesn't, in one step.
   function persistStayAwake(value) {
-    if (stayAwakeStateWriter.running) {
-      root.pendingStayAwakePersist = !!value
-      root.hasPendingStayAwakePersist = true
-      return
-    }
-
-    stayAwakeStateWriter.command = [root.bashBin, "-c", root.stayAwakeWriteScript,
-      "persist-stay-awake", root.stayAwakeStateDir, root.stayAwakeStatePath, value ? "on" : "off"]
-    stayAwakeStateWriter.running = true
-  }
-
-  function refreshStayAwakeState() {
-    if (!stayAwakeStateProbe.running) stayAwakeStateProbe.running = true
+    stayAwakeFile.setText(value ? "on\n" : "off\n")
   }
 
   function applyStayAwake(value, persist, reason) {
@@ -290,52 +265,39 @@ if [ "$mode" = on ]; then /usr/bin/touch -- "$f"; else /usr/bin/rm -f -- "$f"; f
     onExited: function(exitCode, exitStatus) { root.logEvent("process-exit", "wake exitCode=" + exitCode + " status=" + exitStatus) }
   }
 
-  // Same hardening as stayAwakeWriteScript above: non-login shell, absolute
-  // coreutils paths, explicit args instead of $HOME, and only reports "yes"
-  // for a regular file we own that isn't a symlink — so a symlink planted
-  // at that path can't force stay-awake on by being read as present.
-  readonly property string stayAwakeProbeScript: '
-set -e
-dir="$1"; f="$2"
-/usr/bin/mkdir -p -- "$dir"
-if [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ]; then echo yes; else echo no; fi
-'
-
-  Process {
-    id: stayAwakeStateProbe
-    command: [root.bashBin, "-c", root.stayAwakeProbeScript,
-      "stay-awake-probe", root.stayAwakeStateDir, root.stayAwakeStatePath]
-    stdout: SplitParser {
-      onRead: function(line) { root.applyStayAwake(String(line).trim() === "yes", false, "state-file") }
-    }
-    onExited: function() { stayAwakeStateDirWatcher.reload() }
-  }
-
-  Process {
-    id: stayAwakeStateWriter
-    onExited: function() {
-      if (root.hasPendingStayAwakePersist) {
-        var pending = root.pendingStayAwakePersist
-        root.hasPendingStayAwakePersist = false
-        root.persistStayAwake(pending)
-        return
-      }
-
-      root.refreshStayAwakeState()
-    }
-  }
-
+  // Reads and writes the stay-awake marker through Qt's own file I/O
+  // instead of a shell probe — see the comment on persistStayAwake above.
+  // No other Omarchy component reads this path (checked: grepped the
+  // whole stock shell tree — only omarchy.idle's own Service.qml, which
+  // this plugin clones, ever touched it), so there is no compatibility
+  // reason to keep the old "file exists" convention; content ("on"/"off")
+  // is simpler and lets FileView do all the work. Absent (fresh install,
+  // stay-awake never turned on) is treated the same as "off".
   FileView {
-    id: stayAwakeStateDirWatcher
-    path: root.stayAwakeStateDir
+    id: stayAwakeFile
+    path: root.stayAwakeStatePath
     watchChanges: true
+    atomicWrites: true
     printErrors: false
-    onFileChanged: root.refreshStayAwakeState()
+    onLoaded: root.applyStayAwake(text().trim() === "on", false, "state-file")
+    onLoadFailed: root.applyStayAwake(false, false, "state-file-absent")
+    onFileChanged: reload()
+  }
+
+  // The state directory needs to exist before stayAwakeFile can write into
+  // it. Fired once at startup — every other Omarchy indicator already
+  // relies on the same directory, so in practice this is nearly always a
+  // no-op by the time it matters (persistStayAwake only ever runs off a
+  // real IPC/UI call, never automatically at startup).
+  Process {
+    id: ensureStateDirProc
+    command: [root.mkdirBin, "-p", "--", root.stayAwakeStateDir]
   }
 
   Component.onCompleted: {
     logEvent("service-ready")
-    refreshStayAwakeState()
+    ensureStateDirProc.running = true
+    Qt.callLater(function() { stayAwakeFile.reload() })
   }
 
   IpcHandler {
