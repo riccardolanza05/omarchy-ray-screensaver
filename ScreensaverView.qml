@@ -4,9 +4,11 @@ import "Presets.js" as Presets
 
 // One monitor's screensaver surface. A near-verbatim port of setupHeroRay()
 // from plugins.omarchy.org's assets/js/app.js: a closed-form parametric
-// formula draws thousands of tiny squares into a canvas every frame. Colour
-// comes from the live Omarchy theme (Color.foreground on Color.background),
-// a single colour for every dot — no accent, no per-point tinting.
+// formula positions thousands of tiny round dots every frame (the site
+// itself draws squares; this draws circles — see the note above the fill
+// loop below). Colour comes from the live Omarchy theme (Color.foreground on
+// Color.background), a single colour for every dot — no accent, no
+// per-point tinting.
 Item {
   id: root
 
@@ -24,6 +26,20 @@ Item {
 
   property real presetStartedAt: 0
   property real activatedAt: 0
+
+  // The site's own point count (3600) measured at ~5fps here with round
+  // dots — Qt's Canvas tessellates each one into curves internally, and
+  // that (not the point-placement maths, which stays under 3ms even at
+  // 3600) turned out to be the real per-frame cost. Traded down for frame
+  // rate: 900 points renders at ~40-50fps.
+  readonly property int pointCount: 900
+
+  // Unit-circle vertices for an 8-sided dot polygon, built once (not per
+  // point, not per frame). Straight lineTo() segments rasterize far cheaper
+  // than ctx.arc()'s curve tessellation, and at the 1-3px sizes these dots
+  // render at, an octagon looks just as round.
+  readonly property var octX: [1, 0.7071, 0, -0.7071, -1, -0.7071, 0, 0.7071]
+  readonly property var octY: [0, 0.7071, 1, 0.7071, 0, -0.7071, -1, -0.7071]
 
   function elapsed(from) { return (Date.now() - from) / 1000 }
 
@@ -53,6 +69,9 @@ Item {
   Canvas {
     id: canvas
     anchors.fill: parent
+    // FramebufferObject keeps the rendered frame GPU-resident instead of a
+    // CPU image that has to be re-uploaded as a texture every frame.
+    renderTarget: Canvas.FramebufferObject
     renderStrategy: Canvas.Cooperative
 
     onPaint: {
@@ -86,26 +105,29 @@ Item {
       var originY = (h - 400.0 * scale) / 2.0 + panY
 
       var unit = Math.pow(Math.max(1.0, scale), 0.62)
-      var sizeSmall = Math.max(0.8, 0.95 * unit)
-      var sizeLarge = Math.max(0.8, 1.50 * unit)
+      var radiusSmall = Math.max(0.4, 0.475 * unit)
+      var radiusLarge = Math.max(0.4, 0.75 * unit)
 
       var AMP = v.AMP, WIND = v.WIND, VS = v.VS, VO = v.VO, QA = v.QA, QF = v.QF
       var SP = v.SP, TH = v.TH, ORB = v.ORB, YS = v.YS, PD = v.PD, PSP = v.PSP
       var WV = v.WV, WSP = v.WSP, DOF = v.DOF, RF = v.RF, DPH = v.DPH
       var CX = v.CX, CY = v.CY, offsetY = preset.offsetY
 
-      var POINT_COUNT = 3600
-      var STRIDE = 6000.0 / POINT_COUNT
+      var STRIDE = 6000.0 / root.pointCount
       var alphaFaint = 0.27 * 0.84 * fade
       var alphaBright = 0.48 * 0.84 * fade
       var cos = Math.cos, sin = Math.sin, sqrt = Math.sqrt
+      var ox = root.octX, oy = root.octY
 
-      // Two passes (faint, then bright) so each only needs one fillStyle set —
-      // cheap alpha grouping instead of per-point state changes.
+      // Two passes (faint, then bright), each building ONE path out of every
+      // point's 8-sided dot (moveTo + 7 lineTo, no intermediate fill) and
+      // filling it once at the end — one fill() per pass instead of
+      // thousands, and octagons instead of arcs (see octX/octY above).
       for (var pass = 0; pass < 2; pass++) {
         var bright = pass === 1
         ctx.fillStyle = Qt.rgba(fg.r, fg.g, fg.b, bright ? alphaBright : alphaFaint)
-        for (var i = 0; i < POINT_COUNT; i++) {
+        ctx.beginPath()
+        for (var i = 0; i < root.pointCount; i++) {
           if (((i % 13) === 0) !== bright) continue
           var si = i * STRIDE
           var y = si / 235.0
@@ -119,9 +141,11 @@ Item {
           var py = originY + (q * sin(angle) + distance * YS + CY + offsetY) * scale
           if (x < 0 || x > w || py < 0 || py > h) continue
           var big = (i % 29) === 0
-          var size = big ? sizeLarge : sizeSmall
-          ctx.fillRect(x - size / 2, py - size / 2, size, size)
+          var r = big ? radiusLarge : radiusSmall
+          ctx.moveTo(x + ox[0] * r, py + oy[0] * r)
+          for (var v = 1; v < 8; v++) ctx.lineTo(x + ox[v] * r, py + oy[v] * r)
         }
+        ctx.fill()
       }
     }
   }

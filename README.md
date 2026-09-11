@@ -2,11 +2,10 @@
 
 An Omarchy shell plugin that ports the hero animation from
 [plugins.omarchy.org](https://plugins.omarchy.org) into a real screensaver:
-a parametric cloud of thousands of tiny points, drawn fresh every frame from
-a single closed-form formula `(i, t) → (x, y)`. Three of the site's own six
-scenes are included — **RAY**, **BIRD**, **WING** — cycling one step further
-each time the screensaver shows, and once more every 14 seconds while it
-stays up.
+a parametric cloud of round dots, drawn fresh every frame from a single
+closed-form formula `(i, t) → (x, y)`. Three of the site's own six scenes are
+included — **RAY**, **BIRD**, **WING** — cycling one step further each time
+the screensaver shows, and once more every 14 seconds while it stays up.
 
 Every dot is drawn in **your current Omarchy theme's foreground colour**, on
 your theme's background — no accent, no extra tint, just one colour that
