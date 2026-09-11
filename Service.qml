@@ -144,6 +144,21 @@ Item {
 
   function handleActiveSignal() {
     if (!root.idledThisCycle) return
+    // Mapping our own screensaver surface can itself make the compositor's
+    // idle monitor report "active" (the stock omarchy.idle service has the
+    // exact same caveat, guarded with its own window-count/grace-timer
+    // machinery). Real dismissal already comes straight from
+    // ScreensaverView's own Keys/MouseArea handlers via the dismissed
+    // signal below — so once the screensaver is actually up, an idle
+    // monitor "active" ping is ignored rather than treated as a real
+    // dismiss. Without this, a spurious ping would cancel the cycle, the
+    // still-genuinely-idle user would trip idle detection again almost
+    // immediately, and the *next* scene in the rotation would show —
+    // which read as "the scene changed on its own mid-session".
+    if (root.screensaverActive) {
+      logEvent("idle-monitor-active", "screensaver shown, ignoring")
+      return
+    }
     cancelIdleCycle("activity")
   }
 
