@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "author": "riccardolanza05",
   "license": "MIT",
-  "description": "A themed point-cloud screensaver with five rotating scenes (RAY, BIRD, WING, WAVE, SPIRAL), one per activation. Every dot follows your current Omarchy theme colours.",
+  "description": "A themed point-cloud screensaver with three rotating scenes (RAY, BIRD, WING), one per activation. Every dot follows your current Omarchy theme colours.",
   "kinds": [
     "service"
   ],

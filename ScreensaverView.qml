@@ -2,13 +2,12 @@ import QtQuick
 import qs.Commons
 import "Presets.js" as Presets
 
-// One monitor's screensaver surface. Renders whichever scene from
-// Presets.js is current (RAY/BIRD/WING are a near-verbatim port of
-// setupHeroRay() from plugins.omarchy.org's assets/js/app.js — see the
-// paintRay() note below; WAVE and SPIRAL are unrelated formulas), a cloud
-// of tiny round dots every frame. Colour comes from the live Omarchy theme
-// (Color.foreground on Color.background), a single colour for every dot —
-// no accent, no per-point tinting.
+// One monitor's screensaver surface. Renders whichever of the three
+// Presets.js entries is current — a near-verbatim port of setupHeroRay()
+// from plugins.omarchy.org's assets/js/app.js (see paintRay() below), a
+// cloud of tiny round dots every frame. Colour comes from the live Omarchy
+// theme (Color.foreground on Color.background), a single colour for every
+// dot — no accent, no per-point tinting.
 Item {
   id: root
 
@@ -153,62 +152,6 @@ Item {
       }
     }
 
-    // A grid of dots rippled by two summed sine waves — the classic
-    // three.js "particles waves" demo pattern: height(gx,gy,t) =
-    // sin(gx*f+t) + sin(gy*f+t). Height bobs each dot vertically and (since
-    // it also decides which of the two passes a dot falls into) makes wave
-    // crests render bigger and brighter — the closest a flat single-colour
-    // canvas gets to the original's 3D lighting.
-    function paintWave(ctx, t, g) {
-      var cols = Math.round(Math.sqrt(root.pointCount))
-      var rows = Math.ceil(root.pointCount / cols)
-      var sin = Math.sin
-      for (var pass = 0; pass < 2; pass++) {
-        var bright = pass === 1
-        ctx.fillStyle = Qt.rgba(g.fg.r, g.fg.g, g.fg.b, bright ? g.alphaBright : g.alphaFaint)
-        ctx.beginPath()
-        for (var i = 0; i < root.pointCount; i++) {
-          var gx = i % cols, gy = Math.floor(i / cols)
-          var nx = gx - (cols - 1) / 2, ny = gy - (rows - 1) / 2
-          var height = sin(nx * 0.35 + t * 0.9) + sin(ny * 0.35 + t * 0.7)   // -2..2
-          var hn = (height + 2) / 4   // 0..1
-          if ((hn > 0.55) !== bright) continue
-          var x = g.centerX + (nx * 12) * g.scale
-          var py = g.centerY + (ny * 12 + height * 6) * g.scale
-          if (x < 0 || x > g.w || py < 0 || py > g.h) continue
-          if (hn > 0.55) dotBig(ctx, x, py, g.radiusLarge)
-          else dotSmall(ctx, x, py, g.radiusSmall)
-        }
-        ctx.fill()
-      }
-    }
-
-    // Phyllotaxis / Vogel spiral — the sunflower-seed-head pattern (public
-    // domain math, no single author): point i sits at angle = i *
-    // goldenAngle, radius = spacing * sqrt(i). Rotated over time and
-    // breathing gently (radius pulses with sin(t)).
-    function paintSpiral(ctx, t, g) {
-      var goldenAngle = 2.399963
-      var pulse = 1 + 0.15 * Math.sin(t * 0.5)
-      var cos = Math.cos, sin = Math.sin, sqrt = Math.sqrt
-      for (var pass = 0; pass < 2; pass++) {
-        var bright = pass === 1
-        ctx.fillStyle = Qt.rgba(g.fg.r, g.fg.g, g.fg.b, bright ? g.alphaBright : g.alphaFaint)
-        ctx.beginPath()
-        for (var i = 0; i < root.pointCount; i++) {
-          if (((i % 13) === 0) !== bright) continue
-          var angle = i * goldenAngle + t * 0.15
-          var radius = 2.2 * sqrt(i) * pulse
-          var x = g.centerX + (radius * cos(angle)) * g.scale
-          var py = g.centerY + (radius * sin(angle)) * g.scale
-          if (x < 0 || x > g.w || py < 0 || py > g.h) continue
-          if ((i % 29) === 0) dotBig(ctx, x, py, g.radiusLarge)
-          else dotSmall(ctx, x, py, g.radiusSmall)
-        }
-        ctx.fill()
-      }
-    }
-
     onPaint: {
       var ctx = getContext("2d")
       var w = width, h = height
@@ -239,22 +182,15 @@ Item {
 
       var g = {
         w: w, h: h, fg: fg, scale: scale,
-        // originX/originY assume the ray formula's own coordinate convention
-        // (roughly a 0..400 box). Scenes with 0-centred coordinates — wave,
-        // spiral — use centerX/centerY instead.
         originX: (w - 400.0 * scale) / 2.0 + panX,
         originY: (h - 400.0 * scale) / 2.0 + panY,
-        centerX: w / 2.0 + panX,
-        centerY: h / 2.0 + panY,
         radiusSmall: Math.max(0.4, 0.475 * unit),
         radiusLarge: Math.max(0.4, 0.75 * unit),
         alphaFaint: 0.27 * 0.84 * fade,
         alphaBright: 0.48 * 0.84 * fade
       }
 
-      if (preset.kind === "wave") paintWave(ctx, t, g)
-      else if (preset.kind === "spiral") paintSpiral(ctx, t, g)
-      else paintRay(ctx, preset, t, fade, g)
+      paintRay(ctx, preset, t, fade, g)
     }
   }
 

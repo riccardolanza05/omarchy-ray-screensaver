@@ -3,13 +3,12 @@
 An Omarchy shell plugin that ports the hero animation from
 [plugins.omarchy.org](https://plugins.omarchy.org) into a real screensaver:
 a cloud of round dots, drawn fresh every frame from a closed-form formula
-`(i, t) → (x, y)`. Five scenes rotate through — **RAY**, **BIRD**, **WING**
-(three of the site's own six), **WAVE** and **SPIRAL** (two more, in the
-same spirit — see "Where the scenes come from" below) — one scene per
-screensaver activation: it opens on the next scene in the rotation and
-stays on it for as long as it's shown, however long that is. Dismiss it
-(unlock, or any input) and the *next* activation moves one step further,
-cycling through all five before repeating.
+`(i, t) → (x, y)`. Three of the site's own six scenes rotate through —
+**RAY**, **BIRD**, **WING** (see "Where the scenes come from" below) — one
+scene per screensaver activation: it opens on the next scene in the
+rotation and stays on it for as long as it's shown, however long that is.
+Dismiss it (unlock, or any input) and the *next* activation moves one step
+further, cycling through all three before repeating.
 
 Every dot is drawn in **your current Omarchy theme's foreground colour**, on
 your theme's background — no accent, no extra tint, just one colour that
@@ -64,18 +63,16 @@ site's six original scenes (ORIGINAL, COCOON, STORM) are intentionally left
 out — dropped by request in the desktop version this plugin is based on,
 kept out here too for consistency.
 
-**WAVE** (a grid rippled by two summed sine waves) and **SPIRAL** (a
-phyllotaxis/Vogel spiral — the sunflower-seed-head pattern) are unrelated
-formulas in the same single-colour-dot-cloud style, added later. Both are
-classic, well-documented, public-domain patterns with no single sketch or
-author to credit — see `paintWave()`/`paintSpiral()` in
-`ScreensaverView.qml` for exactly what they compute.
+Two more scenes (WAVE, a rippled dot grid, and SPIRAL, a phyllotaxis
+pattern) briefly lived here too and were removed by request — see this
+repo's commit history ("Add two experimental scenes: WAVE and SPIRAL") to
+restore them.
 
-Jump straight to any scene by index (0=RAY, 1=BIRD, 2=WING, 3=WAVE,
-4=SPIRAL) without disturbing the rotation itself:
+Jump straight to any of the three scenes by index without disturbing the
+rotation itself:
 
 ```sh
-omarchy-shell ray-screensaver previewIndex 3   # WAVE, say
+omarchy-shell ray-screensaver previewIndex 1   # BIRD, say
 ```
 
 ## Known limitations
