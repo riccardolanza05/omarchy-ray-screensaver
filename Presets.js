@@ -8,13 +8,6 @@
 // here briefly and were removed by request — see the "Add two experimental
 // scenes" / "One scene per screensaver activation" commits in this repo's
 // history to restore them.
-//
-// FLOCK is a different kind of entry: it has no `over` formula overrides
-// because it isn't a closed-form `(i, t) → (x, y)` scene at all — it's the
-// boids/murmuration simulation from issue #1, which needs per-frame state
-// (position + velocity per agent) that ScreensaverView.qml owns and steps
-// itself. `kind: "boids"` is what tells resolve() and ScreensaverView.qml
-// to take that different path instead of paintRay()'s formula.
 .pragma library
 
 var BASE = {
@@ -41,15 +34,6 @@ var PRESETS = [
     over: { AMP: 7.18, WIND: 47.39, VS: 16.24, VO: 28.23, QA: 3.58, QF: 5.84,
       SP: 38.57, TH: 12.2, ORB: 25.09, YS: 10.8, PD: 15.4, PSP: 3.23,
       WV: 12.94, WSP: 1.19, DOF: 8.59, RF: 10.94, DPH: 0.79, CX: 205, CY: -5 }
-  },
-  {
-    // Boids (Craig Reynolds, 1986) — separation/alignment/cohesion. Public
-    // domain technique, independent implementation (see issue #1 and the
-    // README's "Where the scenes come from"); zoom only sizes the dots
-    // (same formula ScreensaverView.qml already uses for RAY/BIRD/WING) —
-    // it plays no part in the simulation itself, which works directly in
-    // canvas pixel space.
-    name: "FLOCK", kind: "boids", zoom: 1.0, offsetY: 0
   }
 ]
 
@@ -57,8 +41,8 @@ function resolve(index) {
   var p = PRESETS[Math.max(0, Math.min(PRESETS.length - 1, index))]
   var values = {}
   for (var k in BASE) values[k] = BASE[k]
-  if (p.over) for (var k2 in p.over) values[k2] = p.over[k2]
-  return { name: p.name, kind: p.kind || "formula", zoom: p.zoom, offsetY: p.offsetY, values: values }
+  for (var k2 in p.over) values[k2] = p.over[k2]
+  return { name: p.name, zoom: p.zoom, offsetY: p.offsetY, values: values }
 }
 
 function indexByName(name, fallback) {

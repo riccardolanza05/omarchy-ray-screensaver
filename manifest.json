@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.riccardolanza05.omarchy-ray-screensaver",
   "name": "Drift",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "author": "riccardolanza05",
   "license": "MIT",
-  "description": "A minimalist particle-animation screensaver, in your current Omarchy theme's colours, with four rotating scenes.",
+  "description": "A minimalist particle-animation screensaver, in your current Omarchy theme's colours, with three rotating scenes.",
   "kinds": [
     "service"
   ],

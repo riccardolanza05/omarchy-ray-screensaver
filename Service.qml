@@ -326,8 +326,8 @@ Item {
       return "ok"
     }
 
-    // Shows preset index N directly — for jumping straight to one scene
-    // in the RAY/BIRD/WING/FLOCK rotation (see Presets.js) without
+    // Shows preset index N directly — for trying out scenes beyond the
+    // three in the RAY/BIRD/WING rotation (see Presets.js) without
     // disturbing that rotation's own counter.
     function previewIndex(idx: string): string {
       var n = parseInt(idx, 10)
