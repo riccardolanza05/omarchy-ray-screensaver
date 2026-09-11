@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.riccardolanza05.omarchy-ray-screensaver",
+  "name": "Ray Screensaver",
+  "version": "1.0.0",
+  "author": "riccardolanza05",
+  "license": "MIT",
+  "description": "A themed, parametric point-cloud screensaver (RAY, BIRD, WING) ported from the plugins.omarchy.org hero animation. Every dot follows your current Omarchy theme colours.",
+  "kinds": [
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml"
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.idle"
+  }
+}
