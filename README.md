@@ -159,6 +159,14 @@ packages to install, no external services, no network access.
 - No per-user tuning knobs yet (point count, zoom, which scenes are in the
   rotation) — everything is fixed at the values that looked right during
   development. Contributions welcome.
+- Every command this service runs (`omarchy-system-lock`,
+  `omarchy-system-wake`, `bash`, `mkdir`, `touch`, `rm`) is invoked at a
+  hardcoded absolute path rather than looked up by name, as a deliberate
+  security hardening (see the commit history around the marketplace
+  review) — this assumes the standard Arch/Omarchy filesystem layout. If a
+  future Omarchy release ever moves one of those binaries, this plugin
+  would need a matching update rather than picking the new location up on
+  its own the way a `$PATH`-based lookup would have.
 
 ## Development
 
