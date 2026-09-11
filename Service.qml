@@ -329,6 +329,17 @@ Item {
       root.launchScreensaverAt(n)
       return "ok"
     }
+
+    // Goes through startIdleCycle() itself — unlike preview(), this sets
+    // idledThisCycle exactly like a real idle timeout would, so testing
+    // handleActiveSignal()'s behaviour (which short-circuits on
+    // idledThisCycle) actually exercises it. preview() alone cannot: it
+    // never sets idledThisCycle, so handleActiveSignal() returns before
+    // reaching anything worth testing.
+    function simulateIdle(): string {
+      root.startIdleCycle()
+      return "ok"
+    }
   }
 
   // One fullscreen surface per monitor. Only one needs keyboard focus to
@@ -355,7 +366,7 @@ Item {
         anchors.fill: parent
         active: root.screensaverActive
         presetIndex: root.screensaverPresetIndex
-        onDismissed: root.cancelIdleCycle("screensaver-dismissed")
+        onDismissed: function(reason) { root.cancelIdleCycle("screensaver-dismissed: " + reason) }
       }
     }
   }

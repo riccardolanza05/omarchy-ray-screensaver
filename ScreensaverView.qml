@@ -21,7 +21,7 @@ Item {
   property bool active: false       // host toggles this to show/hide
   property real graceSeconds: 2.5   // ignore input this long after activating
 
-  signal dismissed()
+  signal dismissed(string reason)
 
   property real presetStartedAt: 0
   property real activatedAt: 0
@@ -45,16 +45,42 @@ Item {
 
   function elapsed(from) { return (Date.now() - from) / 1000 }
 
+  // Set once the grace period ends, by the first mouse-position report that
+  // arrives after it — not a dismiss in itself, just a baseline to measure
+  // real movement against afterwards. -1 means "not set yet".
+  property real refMouseX: -1
+  property real refMouseY: -1
+
   function activate() {
     presetStartedAt = Date.now()
     activatedAt = Date.now()
+    refMouseX = -1
+    refMouseY = -1
     canvas.requestPaint()
   }
 
-  function maybeDismiss() {
+  // Click and key presses are unambiguous — dismiss immediately once past
+  // the grace period.
+  function maybeDismiss(reason) {
     if (!root.active) return
     if (elapsed(root.activatedAt) < root.graceSeconds) return
-    root.dismissed()
+    root.dismissed(reason)
+  }
+
+  // Mouse movement needs a minimum distance, not just "a position changed":
+  // Qt/Wayland reports a position the moment a MouseArea gains hover (e.g.
+  // right as this surface maps under an already-stationary cursor) even
+  // though the mouse never actually moved, and — with no threshold — that
+  // single synthetic report was enough to dismiss the screensaver within a
+  // couple of seconds of it opening, every time. 3px, matching the
+  // move-to-dismiss threshold the desktop prototype this is based on used.
+  function maybeDismissOnMove(mx, my) {
+    if (!root.active) return
+    if (elapsed(root.activatedAt) < root.graceSeconds) return
+    if (root.refMouseX < 0) { root.refMouseX = mx; root.refMouseY = my; return }
+    var dx = mx - root.refMouseX, dy = my - root.refMouseY
+    if (dx * dx + dy * dy < 9) return   // < 3px
+    root.dismissed("mouse-move dx=" + dx.toFixed(1) + " dy=" + dy.toFixed(1))
   }
 
   onActiveChanged: if (active) activate()
@@ -235,12 +261,12 @@ Item {
   MouseArea {
     anchors.fill: parent
     hoverEnabled: true
-    onPositionChanged: root.maybeDismiss()
-    onClicked: root.maybeDismiss()
+    onPositionChanged: function(mouse) { root.maybeDismissOnMove(mouse.x, mouse.y) }
+    onClicked: root.maybeDismiss("click")
   }
 
   Keys.onPressed: function(event) {
-    root.maybeDismiss()
+    root.maybeDismiss("key=" + event.key)
     event.accepted = true
   }
 
