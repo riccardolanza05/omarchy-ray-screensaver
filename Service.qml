@@ -23,6 +23,18 @@ Item {
   readonly property string home: Quickshell.env("HOME")
   readonly property string stayAwakeStateDir: home + "/.local/state/omarchy/indicators"
   readonly property string stayAwakeStatePath: stayAwakeStateDir + "/stay-awake"
+
+  // Trusted, absolute identities for every external command this service
+  // runs, resolved once here rather than looked up by name (PATH) at
+  // invocation time. Idle/lock/wake is a security-sensitive boundary — an
+  // unqualified command name there is one a compromised PATH could
+  // redirect, and a login shell (bash -l) sources profile/rc files that
+  // could do the same. Every Process below uses these directly and, for
+  // the lock/wake calls, no shell at all (they take no arguments and need
+  // no shell features).
+  readonly property string lockBin: "/usr/share/omarchy/bin/omarchy-system-lock"
+  readonly property string wakeBin: "/usr/share/omarchy/bin/omarchy-system-wake"
+  readonly property string bashBin: "/usr/bin/bash"
   readonly property int defaultScreensaverSeconds: 150
   readonly property int defaultLockSeconds: 300
   readonly property var idleConfig: shell && shell.shellConfig && shell.shellConfig.idle
@@ -69,13 +81,15 @@ Item {
     console.log("omarchy-ray-screensaver " + root.lastEventAt + " " + root.lastEvent)
   }
 
-  function runProcess(process, label, command) {
+  // `argv` is a plain argument vector (executable first) run directly, with
+  // no shell involved — see the comment on lockBin/wakeBin/bashBin above.
+  function runProcess(process, label, argv) {
     if (process.running) {
       logEvent("process-skip", label + " already running")
       return false
     }
-    logEvent("process-start", label + " " + command)
-    process.command = ["bash", "-lc", command]
+    logEvent("process-start", label + " " + argv.join(" "))
+    process.command = argv
     process.running = true
     return true
   }
@@ -110,7 +124,7 @@ Item {
     hideScreensaver("locking")
     root.idledThisCycle = false
     root.screensaverStartedThisCycle = false
-    runProcess(lockProcess, "lock", "omarchy-system-lock")
+    runProcess(lockProcess, "lock", [root.lockBin])
   }
 
   function startIdleCycle() {
@@ -136,7 +150,7 @@ Item {
     lockTimer.stop()
     hideScreensaver(reason)
 
-    if (root.idledThisCycle) runProcess(wakeProcess, "wake", "omarchy-system-wake")
+    if (root.idledThisCycle) runProcess(wakeProcess, "wake", [root.wakeBin])
 
     root.idledThisCycle = false
     root.screensaverStartedThisCycle = false
@@ -186,18 +200,36 @@ Item {
     })
   }
 
-  function persistStayAwake(value) {
-    var command = value
-      ? "mkdir -p \"$HOME/.local/state/omarchy/indicators\" && touch \"$HOME/.local/state/omarchy/indicators/stay-awake\""
-      : "rm -f \"$HOME/.local/state/omarchy/indicators/stay-awake\""
+  // Non-login shell (-c, not -l — no profile/rc sourcing), absolute paths
+  // for bash itself and every coreutils call inside it, and the directory
+  // and file paths passed in as arguments rather than read from the
+  // process's own $HOME (root.home already comes from Quickshell.env, not
+  // the shell's inherited environment). Touches or removes the marker file
+  // only when it is safe to: absent, or present as a *regular file we own,
+  // not a symlink* (`-O` is bash's own effective-owner test) — so a symlink
+  // planted at that exact path can't make this service follow it onto an
+  // unrelated file.
+  readonly property string stayAwakeWriteScript: '
+set -e
+dir="$1"; f="$2"; mode="$3"
+/usr/bin/mkdir -p -- "$dir"
+safe=0
+if [ ! -e "$f" ]; then safe=1
+elif [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ]; then safe=1
+fi
+[ "$safe" = 1 ] || exit 0
+if [ "$mode" = on ]; then /usr/bin/touch -- "$f"; else /usr/bin/rm -f -- "$f"; fi
+'
 
+  function persistStayAwake(value) {
     if (stayAwakeStateWriter.running) {
       root.pendingStayAwakePersist = !!value
       root.hasPendingStayAwakePersist = true
       return
     }
 
-    stayAwakeStateWriter.command = ["bash", "-lc", command]
+    stayAwakeStateWriter.command = [root.bashBin, "-c", root.stayAwakeWriteScript,
+      "persist-stay-awake", root.stayAwakeStateDir, root.stayAwakeStatePath, value ? "on" : "off"]
     stayAwakeStateWriter.running = true
   }
 
@@ -258,9 +290,21 @@ Item {
     onExited: function(exitCode, exitStatus) { root.logEvent("process-exit", "wake exitCode=" + exitCode + " status=" + exitStatus) }
   }
 
+  // Same hardening as stayAwakeWriteScript above: non-login shell, absolute
+  // coreutils paths, explicit args instead of $HOME, and only reports "yes"
+  // for a regular file we own that isn't a symlink — so a symlink planted
+  // at that path can't force stay-awake on by being read as present.
+  readonly property string stayAwakeProbeScript: '
+set -e
+dir="$1"; f="$2"
+/usr/bin/mkdir -p -- "$dir"
+if [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ]; then echo yes; else echo no; fi
+'
+
   Process {
     id: stayAwakeStateProbe
-    command: ["bash", "-c", "mkdir -p \"$HOME/.local/state/omarchy/indicators\"; if [[ -f $HOME/.local/state/omarchy/indicators/stay-awake ]]; then echo yes; else echo no; fi"]
+    command: [root.bashBin, "-c", root.stayAwakeProbeScript,
+      "stay-awake-probe", root.stayAwakeStateDir, root.stayAwakeStatePath]
     stdout: SplitParser {
       onRead: function(line) { root.applyStayAwake(String(line).trim() === "yes", false, "state-file") }
     }
@@ -338,6 +382,14 @@ Item {
     // reaching anything worth testing.
     function simulateIdle(): string {
       root.startIdleCycle()
+      return "ok"
+    }
+
+    // Triggers a real lock immediately, the same call lockTimer makes at
+    // the real timeout — for verifying the lock process launches
+    // correctly (exit code, etc.) without waiting out the real delay.
+    function simulateLock(): string {
+      root.lockSystem("test")
       return "ok"
     }
   }

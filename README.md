@@ -86,6 +86,18 @@ without disturbing the rotation's own position:
 omarchy-shell ray-screensaver previewIndex 1   # BIRD, say
 ```
 
+Two more calls exist for exercising the real idle machinery without
+waiting out the real timeouts — `simulateIdle` goes through the same
+`startIdleCycle()` a genuine idle timeout does, and `simulateLock`
+triggers an actual lock immediately (same call the lock timer makes at
+its real timeout — this really does lock your session, same as if the
+timeout had just been reached):
+
+```sh
+omarchy-shell ray-screensaver simulateIdle
+omarchy-shell ray-screensaver simulateLock
+```
+
 ## How it works
 
 - **Rendering**: each monitor gets its own fullscreen `PanelWindow`
