@@ -2,12 +2,21 @@ import QtQuick
 import qs.Commons
 import "Presets.js" as Presets
 
-// One monitor's screensaver surface. Renders whichever of the three
-// Presets.js entries is current — a near-verbatim port of setupHeroRay()
-// from plugins.omarchy.org's assets/js/app.js (see paintRay() below), a
-// cloud of tiny round dots every frame. Colour comes from the live Omarchy
-// theme (Color.foreground on Color.background), a single colour for every
-// dot — no accent, no per-point tinting.
+// One monitor's screensaver surface. Renders whichever of the Presets.js
+// entries is current, either of two ways: RAY/BIRD/WING are a near-verbatim
+// port of setupHeroRay() from plugins.omarchy.org's assets/js/app.js (see
+// paintRay() below) — every dot's position is recomputed from scratch each
+// frame as a pure function of (i, t), no memory between frames. FLOCK (see
+// paintFlock()/stepFlock() below) is the opposite: a real boids simulation,
+// a direct port of Daniel Shiffman's Boid.pde (The Nature of Code,
+// chp06_agents/NOC_6_09_Flocking) — each dot carries position + velocity
+// forward from the previous frame and steers by three rules (separation,
+// alignment, cohesion), each computed the way that reference does it:
+// "steer = desired − velocity", limited to maxForce, not an ad-hoc direct
+// push — which is what gives it believable, physically-grounded turns
+// instead of jittery snapping. See issue #1. Colour comes from the live
+// Omarchy theme (Color.foreground on Color.background), a single colour
+// for every dot — no accent, no per-point tinting — in both cases.
 Item {
   id: root
 
@@ -24,6 +33,12 @@ Item {
 
   property real presetStartedAt: 0
   property real activatedAt: 0
+
+  // True while the current preset is the FLOCK boids scene — a live
+  // binding (Presets.resolve() is a cheap pure function) so frameTimer
+  // doesn't have to re-resolve the preset on every 16ms tick just to know
+  // whether it needs to step the simulation.
+  readonly property bool boidsKind: Presets.resolve(presetIndex).kind === "boids"
 
   // Picked to hold a steady 58-61fps on the heaviest scene (RAY) — dialled
   // down from a denser 4500 (measured 46-60fps, occasionally short of 60)
@@ -55,6 +70,10 @@ Item {
     activatedAt = Date.now()
     refMouseX = -1
     refMouseY = -1
+    // A fresh flock each time the scene (re)starts — same spirit as
+    // presetStartedAt resetting the formula scenes' clock to 0: whichever
+    // scene is showing opens on a clean, unrepeated start every activation.
+    canvas.flockNeedsReset = true
     canvas.requestPaint()
   }
 
@@ -83,14 +102,24 @@ Item {
   }
 
   onActiveChanged: if (active) activate()
-  onPresetIndexChanged: if (root.active) presetStartedAt = Date.now()
+  onPresetIndexChanged: if (root.active) {
+    presetStartedAt = Date.now()
+    canvas.flockNeedsReset = true
+  }
 
   Timer {
     id: frameTimer
     interval: 16
     running: root.active
     repeat: true
-    onTriggered: canvas.requestPaint()
+    onTriggered: {
+      // Physics is stepped here, once per tick, at a fixed dt — decoupled
+      // from onPaint, which may repaint more than once per tick (e.g. on
+      // an expose event) and must stay a pure "draw current state" step.
+      if (root.boidsKind && canvas.width > 0 && canvas.height > 0)
+        canvas.stepFlock(1 / 60, canvas.width, canvas.height)
+      canvas.requestPaint()
+    }
   }
 
   Canvas {
@@ -116,6 +145,189 @@ Item {
 
     function dotSmall(ctx, x, y, r) {
       ctx.fillRect(x - r, y - r, r + r, r + r)
+    }
+
+    // --- FLOCK: boids, ported from Shiffman's Boid.pde -----------------
+    //
+    // The reference (The Nature of Code, chp06_agents/NOC_6_09_Flocking)
+    // gives each boid an accumulated acceleration, reset every frame, that
+    // three rules add into via `applyForce`: separate() (×1.5), align()
+    // (×1) and cohesion() (×1) — see the class-level comment for how
+    // faithfully this follows it. Every one of those three rules reduces
+    // to the same primitive, `seek(target)`: steer = desired − velocity,
+    // where desired is the direction to the target at maxSpeed, and the
+    // result is clamped to maxForce. Separation's "target" is a point
+    // pushed away from crowding neighbours; alignment's is the average
+    // neighbour velocity; cohesion's is the average neighbour position.
+    // velocity += acceleration, clamped to maxSpeed, then position +=
+    // velocity, same as the reference's update(). Borders wrap (teleport
+    // to the opposite edge) exactly like the reference's borders() —
+    // ordinary for a boids sim (every reference implementation found for
+    // issue #1 does the same), and with hundreds of agents on screen one
+    // going around the edge doesn't read as a cut in the scene itself.
+    //
+    // The one thing NOT ported verbatim is neighbour lookup: the
+    // reference scans every other boid for each of the three rules
+    // (O(n) × 3 per boid); this uses a spatial hash grid (cell size = the
+    // larger of the two radii) built once per frame, so it stays close to
+    // O(n) at the higher agent counts this plugin already used for the
+    // formula scenes' point clouds.
+    readonly property int flockCount: 500
+    property bool flockReady: false
+    property bool flockNeedsReset: true
+    property var flockX: []
+    property var flockY: []
+    property var flockVX: []
+    property var flockVY: []
+    // Tuned as fractions of min(width, height) in initFlock() so the flock
+    // reads the same regardless of monitor resolution — same idea as the
+    // formula scenes' `ref`/`scale` in onPaint below. separationR:neighborR
+    // keeps the reference's 25:50 (1:2) ratio; alignment and cohesion share
+    // one neighbourhood radius, same as the reference.
+    property real flockSeparationR: 0
+    property real flockNeighborR: 0
+    property real flockCell: 0
+    property real flockMaxSpeed: 0
+    property real flockMaxForce: 0
+
+    function initFlock(w, h) {
+      var ref = Math.max(1, Math.min(w, h))
+      flockSeparationR = ref * 0.020
+      flockNeighborR = ref * 0.045
+      flockCell = Math.max(flockSeparationR, flockNeighborR)
+      flockMaxSpeed = ref * 0.10
+      flockMaxForce = ref * 0.12
+
+      var n = flockCount
+      var X = [], Y = [], VX = [], VY = []
+      for (var i = 0; i < n; i++) {
+        X.push(Math.random() * w)
+        Y.push(Math.random() * h)
+        var ang = Math.random() * Math.PI * 2
+        var sp = flockMaxSpeed * (0.3 + Math.random() * 0.7)
+        VX.push(Math.cos(ang) * sp)
+        VY.push(Math.sin(ang) * sp)
+      }
+      flockX = X; flockY = Y; flockVX = VX; flockVY = VY
+      flockReady = true
+      flockNeedsReset = false
+    }
+
+    // seek(): Reynolds' "steer = desired − velocity", limited to maxForce.
+    // (tx, ty) is the target direction (not yet normalized); (vx, vy) is
+    // this boid's current velocity. Returns [steerX, steerY].
+    function flockSeek(tx, ty, vx, vy) {
+      var m = Math.sqrt(tx * tx + ty * ty)
+      if (m < 0.0001) return [0, 0]
+      var dx = tx / m * flockMaxSpeed, dy = ty / m * flockMaxSpeed
+      var sx = dx - vx, sy = dy - vy
+      var sm = Math.sqrt(sx * sx + sy * sy)
+      if (sm > flockMaxForce) { sx = sx / sm * flockMaxForce; sy = sy / sm * flockMaxForce }
+      return [sx, sy]
+    }
+
+    function stepFlock(dt, w, h) {
+      if (!flockReady) return
+      var n = flockCount
+      var X = flockX, Y = flockY, VX = flockVX, VY = flockVY
+      var cell = flockCell
+      if (cell <= 0) return
+
+      // Bucket every agent into a coarse grid keyed by "col,row" once per
+      // frame — turns each agent's neighbour search below into "check my
+      // cell and its 8 neighbours" instead of scanning all n agents.
+      var grid = {}
+      for (var gi = 0; gi < n; gi++) {
+        var key = Math.floor(X[gi] / cell) + "," + Math.floor(Y[gi] / cell)
+        var bucket = grid[key]
+        if (bucket) bucket.push(gi); else grid[key] = [gi]
+      }
+
+      var sepR2 = flockSeparationR * flockSeparationR
+      var neighR2 = flockNeighborR * flockNeighborR
+      var maxR2 = Math.max(sepR2, neighR2)
+
+      var newVX = new Array(n), newVY = new Array(n)
+
+      for (var i = 0; i < n; i++) {
+        var xi = X[i], yi = Y[i], vxi = VX[i], vyi = VY[i]
+        var cx = Math.floor(xi / cell), cy = Math.floor(yi / cell)
+
+        var sepX = 0, sepY = 0, sepCount = 0
+        var sumVX = 0, sumVY = 0, aliCount = 0
+        var sumX = 0, sumY = 0, cohCount = 0
+
+        for (var gx = cx - 1; gx <= cx + 1; gx++) {
+          for (var gy = cy - 1; gy <= cy + 1; gy++) {
+            var nb = grid[gx + "," + gy]
+            if (!nb) continue
+            for (var b = 0; b < nb.length; b++) {
+              var j = nb[b]
+              if (j === i) continue
+              var dx = xi - X[j], dy = yi - Y[j]
+              var d2 = dx * dx + dy * dy
+              if (d2 > maxR2 || d2 <= 0.0001) continue
+              // Separation: away from the neighbour, weighted by 1/distance
+              // (diff.normalize().div(d) in the reference — the same as
+              // dividing the raw offset by d²).
+              if (d2 < sepR2) { sepX += dx / d2; sepY += dy / d2; sepCount++ }
+              if (d2 < neighR2) {
+                sumVX += VX[j]; sumVY += VY[j]; aliCount++
+                sumX += X[j]; sumY += Y[j]; cohCount++
+              }
+            }
+          }
+        }
+
+        var ax = 0, ay = 0
+
+        if (sepCount > 0) {
+          var s = flockSeek(sepX / sepCount, sepY / sepCount, vxi, vyi)
+          ax += s[0] * 1.5; ay += s[1] * 1.5
+        }
+        if (aliCount > 0) {
+          var a = flockSeek(sumVX / aliCount, sumVY / aliCount, vxi, vyi)
+          ax += a[0]; ay += a[1]
+        }
+        if (cohCount > 0) {
+          var c = flockSeek(sumX / cohCount - xi, sumY / cohCount - yi, vxi, vyi)
+          ax += c[0]; ay += c[1]
+        }
+
+        var vx = vxi + ax * dt, vy = vyi + ay * dt
+        var sp = Math.sqrt(vx * vx + vy * vy)
+        if (sp > flockMaxSpeed) { vx = vx / sp * flockMaxSpeed; vy = vy / sp * flockMaxSpeed }
+        newVX[i] = vx; newVY[i] = vy
+      }
+
+      for (var k = 0; k < n; k++) {
+        VX[k] = newVX[k]; VY[k] = newVY[k]
+        X[k] += VX[k] * dt
+        Y[k] += VY[k] * dt
+        // Wraparound, same as the reference's borders().
+        if (X[k] < 0) X[k] += w; else if (X[k] > w) X[k] -= w
+        if (Y[k] < 0) Y[k] += h; else if (Y[k] > h) Y[k] -= h
+      }
+    }
+
+    // Same two-brightness-pass, big/small-dot split as paintRay() (see
+    // there for why), just reading live simulation state instead of
+    // evaluating a formula.
+    function paintFlock(ctx, g) {
+      var n = flockCount, X = flockX, Y = flockY
+      for (var pass = 0; pass < 2; pass++) {
+        var bright = pass === 1
+        ctx.fillStyle = Qt.rgba(g.fg.r, g.fg.g, g.fg.b, bright ? g.alphaBright : g.alphaFaint)
+        ctx.beginPath()
+        for (var i = 0; i < n; i++) {
+          if (((i % 13) === 0) !== bright) continue
+          var x = X[i], y = Y[i]
+          if (x < 0 || x > g.w || y < 0 || y > g.h) continue
+          if ((i % 29) === 0) dotBig(ctx, x, y, g.radiusLarge)
+          else dotSmall(ctx, x, y, g.radiusSmall)
+        }
+        ctx.fill()
+      }
     }
 
     // The setupHeroRay() formula (see the file header). `g` bundles the
@@ -190,7 +402,12 @@ Item {
         alphaBright: 0.48 * 0.84 * fade
       }
 
-      paintRay(ctx, preset, t, fade, g)
+      if (preset.kind === "boids") {
+        if (flockNeedsReset || !flockReady) initFlock(w, h)
+        paintFlock(ctx, g)
+      } else {
+        paintRay(ctx, preset, t, fade, g)
+      }
     }
   }
 

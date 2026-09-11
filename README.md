@@ -18,17 +18,29 @@ dots that drifts and folds into shifting shapes, always drawn in your
 
 ## What it does
 
-Drift replaces your idle screensaver with a small cloud of dots — a couple
-thousand tiny points, each positioned every frame by a closed-form
-parametric formula `(i, t) → (x, y)` — that folds itself into an organic,
-paper-thin shape and keeps drifting as long as the screensaver is shown.
-Three scenes are built in — **RAY**, **BIRD**, **WING** — and it rotates
-through them one at a time: each time your screen goes idle it opens on
-the next scene in the rotation and stays on that single scene, however
-long the screensaver ends up staying up, right until you dismiss it
-(unlock, or any real input). The *next* time it activates, it moves one
-step further through the rotation, cycling through all three before
-repeating.
+Drift replaces your idle screensaver with a small cloud of dots that folds
+itself into an organic, paper-thin shape and keeps drifting as long as the
+screensaver is shown. Four scenes are built in, and it rotates through
+them one at a time: each time your screen goes idle it opens on the next
+scene in the rotation and stays on that single scene, however long the
+screensaver ends up staying up, right until you dismiss it (unlock, or any
+real input). The *next* time it activates, it moves one step further
+through the rotation, cycling through all four before repeating.
+
+- **RAY**, **BIRD**, **WING** — a couple thousand tiny points, each
+  positioned every frame by a closed-form parametric formula
+  `(i, t) → (x, y)`. Stateless: nothing is remembered between frames, the
+  whole shape is just where that formula happens to put every point at
+  the current instant.
+- **FLOCK** — a real flocking simulation (boids: separation, alignment,
+  cohesion — Craig Reynolds, 1986; this plugin's version is a direct port
+  of Daniel Shiffman's widely-used `Boid.pde` reference from *The Nature
+  of Code*), the opposite of the other three: each dot carries a position
+  and velocity forward from the previous frame and reacts to nearby dots
+  with physically-grounded steering forces, which is what gives it the
+  organic, unpredictable swooping and folding a fixed formula can't
+  produce. Same single-colour, round-dot look as the other three; only
+  what drives the motion differs.
 
 ## Install
 
@@ -79,8 +91,8 @@ omarchy-shell ray-screensaver disable   # hide it / pause idle handling
 omarchy-shell ray-screensaver enable    # resume
 ```
 
-Jump straight to one of the three scenes by index (0=RAY, 1=BIRD, 2=WING)
-without disturbing the rotation's own position:
+Jump straight to one of the four scenes by index (0=RAY, 1=BIRD, 2=WING,
+3=FLOCK) without disturbing the rotation's own position:
 
 ```sh
 omarchy-shell ray-screensaver previewIndex 1   # BIRD, say
@@ -107,7 +119,16 @@ omarchy-shell ray-screensaver simulateLock
   (octagon) shape; the other ~97% are drawn with a plain `fillRect()` —
   square vs. round is not visually distinguishable at the ~1px size those
   render at, and skipping path construction for the vast majority of points
-  is what keeps ~1700 points at a steady ~60fps.
+  is what keeps RAY/BIRD/WING's ~1700 points at a steady ~60fps.
+- **FLOCK's simulation**: 500 agents, each with its own position and
+  velocity carried across frames. Every frame, each agent looks at nearby
+  flockmates — found via a spatial hash grid keyed by cell, not an all-pairs
+  scan, so cost stays close to O(n) — and steers by three Reynolds rules
+  (separation, alignment, cohesion), each a `steer = desired − velocity`
+  seek force limited to a maximum, weighted and summed exactly like the
+  Nature of Code reference this is ported from. Borders wrap, same as that
+  reference. Physics is stepped once per 16ms tick, decoupled from
+  painting, which just draws whatever the simulation's current state is.
 - **Colour**: read once per frame from the `qs.Commons` `Color` singleton
   that the rest of the Omarchy shell already uses, so a day/night theme
   switch is picked up live, mid-session.
@@ -140,9 +161,22 @@ left out.
 Two more scenes (WAVE, a rippled dot grid, and SPIRAL, a phyllotaxis
 pattern) briefly lived here too and were removed to keep the plugin to
 the original three — see this repo's commit history ("Add two
-experimental scenes: WAVE and SPIRAL") to restore them, or the
-[boids/flocking idea tracked as an issue](https://github.com/riccardolanza05/omarchy-ray-screensaver/issues)
-for a possible future scene in a different style entirely.
+experimental scenes: WAVE and SPIRAL") to restore them.
+
+**FLOCK** is a different style entirely — not part of `setupHeroRay()` or
+the #つぶやきProcessing lineage above. It's a direct, credited port of
+[Daniel Shiffman](https://github.com/shiffman)'s `Boid.pde` from
+[*The Nature of Code*](https://natureofcode.com/)
+([source](https://github.com/nature-of-code/noc-examples-processing/blob/master/chp06_agents/NOC_6_09_Flocking/Boid.pde)),
+itself an implementation of **boids** (Craig Reynolds, 1986): separation,
+alignment and cohesion, the classic three-rule flocking algorithm — same
+per-rule weights (separation ×1.5, alignment/cohesion ×1) and wraparound
+edges as that reference; only the neighbour search (a spatial hash grid
+instead of an all-pairs scan, for performance at a few hundred agents) and
+the rendering (this plugin's round dots instead of oriented triangles)
+differ. Tracked as
+[issue #1](https://github.com/riccardolanza05/omarchy-ray-screensaver/issues/1)
+before being built.
 
 ## Requirements & dependencies
 
@@ -183,4 +217,6 @@ and a real idle-cycle test) before being committed.
 
 MIT — see [LICENSE](./LICENSE). `Service.qml` is based on the built-in
 `omarchy.idle` service from [Omarchy](https://github.com/omacom/omarchy)
-(MIT).
+(MIT). FLOCK's simulation is ported from Daniel Shiffman's `Boid.pde` in
+[nature-of-code/noc-examples-processing](https://github.com/nature-of-code/noc-examples-processing)
+(MIT) — see "Where the scenes come from" above.
