@@ -2,21 +2,20 @@ import QtQuick
 import qs.Commons
 import "Presets.js" as Presets
 
-// One monitor's screensaver surface. A near-verbatim port of setupHeroRay()
-// from plugins.omarchy.org's assets/js/app.js: a closed-form parametric
-// formula positions thousands of tiny round dots every frame (the site
-// itself draws squares; this draws circles — see the note above the fill
-// loop below). Colour comes from the live Omarchy theme (Color.foreground on
-// Color.background), a single colour for every dot — no accent, no
-// per-point tinting.
+// One monitor's screensaver surface. Renders whichever scene from
+// Presets.js is current (RAY/BIRD/WING are a near-verbatim port of
+// setupHeroRay() from plugins.omarchy.org's assets/js/app.js — see the
+// paintRay() note below; WAVE and SPIRAL are unrelated formulas), a cloud
+// of tiny round dots every frame. Colour comes from the live Omarchy theme
+// (Color.foreground on Color.background), a single colour for every dot —
+// no accent, no per-point tinting.
 Item {
   id: root
 
-  // Which of the three kept presets (RAY=0, BIRD=1, WING=2) is showing. The
-  // host drives this directly (both the initial choice and the in-session
-  // hold-cycle advance) so every monitor's surface changes preset at exactly
-  // the same moment — each surface has its own Canvas and its own clock, but
-  // none of them decide on their own when to move to the next preset.
+  // Which Presets.js entry is showing. The host (Service.qml) drives this
+  // directly and it does not change again until the *next* activation — one
+  // scene stays up for the whole time the screensaver is shown, and each
+  // new activation moves one step further through the rotation.
   property int presetIndex: 0
   property real fadeSeconds: 0.22
   property bool active: false       // host toggles this to show/hide

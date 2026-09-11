@@ -2,10 +2,14 @@
 
 An Omarchy shell plugin that ports the hero animation from
 [plugins.omarchy.org](https://plugins.omarchy.org) into a real screensaver:
-a parametric cloud of round dots, drawn fresh every frame from a single
-closed-form formula `(i, t) → (x, y)`. Three of the site's own six scenes are
-included — **RAY**, **BIRD**, **WING** — cycling one step further each time
-the screensaver shows, and once more every 14 seconds while it stays up.
+a cloud of round dots, drawn fresh every frame from a closed-form formula
+`(i, t) → (x, y)`. Five scenes rotate through — **RAY**, **BIRD**, **WING**
+(three of the site's own six), **WAVE** and **SPIRAL** (two more, in the
+same spirit — see "Where the scenes come from" below) — one scene per
+screensaver activation: it opens on the next scene in the rotation and
+stays on it for as long as it's shown, however long that is. Dismiss it
+(unlock, or any input) and the *next* activation moves one step further,
+cycling through all five before repeating.
 
 Every dot is drawn in **your current Omarchy theme's foreground colour**, on
 your theme's background — no accent, no extra tint, just one colour that
@@ -45,23 +49,9 @@ omarchy-shell ray-screensaver disable   # hide it / pause idle handling
 omarchy-shell ray-screensaver enable    # resume
 ```
 
-## Trying other animation styles
+## Where the scenes come from
 
-Two experimental scenes outside the setupHeroRay formula live in `Presets.js`
-(index 3 and 4) — a grid rippled by two summed sine waves (the classic
-three.js "particles waves" demo pattern) and a phyllotaxis/Vogel spiral (the
-sunflower-seed-head pattern), both public-domain math rather than a copy of
-any one person's sketch. They're not part of the RAY→BIRD→WING rotation —
-try them without disturbing it:
-
-```sh
-omarchy-shell ray-screensaver previewIndex 3   # WAVE
-omarchy-shell ray-screensaver previewIndex 4   # SPIRAL
-```
-
-## What this is (and isn't) a port of
-
-The formula is a 1:1 read of `setupHeroRay()` in the site's
+**RAY, BIRD, WING** are a 1:1 read of `setupHeroRay()` in the site's
 `assets/js/app.js` — verified by fetching the file directly; it carries no
 comments, credit, or link to a source of its own. It belongs to a genre of
 compact, trigonometry-driven point-cloud sketches that circulates on X/Twitter
@@ -69,20 +59,33 @@ under the hashtag **#つぶやきProcessing** ("Tsubuyaki Processing" — sketch
 that fit in a single tweet), most visibly through creators like
 [@yuruyurau](https://x.com/yuruyurau). This plugin credits that lineage but
 is not a copy of any single named sketch — like the site's own version, it's
-an independent implementation of the same style of formula.
+an independent implementation of the same style of formula. Three of the
+site's six original scenes (ORIGINAL, COCOON, STORM) are intentionally left
+out — dropped by request in the desktop version this plugin is based on,
+kept out here too for consistency.
 
-Three of the six original scenes (ORIGINAL, COCOON, STORM) are intentionally
-left out here — dropped by request in the desktop version this plugin is
-based on, kept out here too for consistency.
+**WAVE** (a grid rippled by two summed sine waves) and **SPIRAL** (a
+phyllotaxis/Vogel spiral — the sunflower-seed-head pattern) are unrelated
+formulas in the same single-colour-dot-cloud style, added later. Both are
+classic, well-documented, public-domain patterns with no single sketch or
+author to credit — see `paintWave()`/`paintSpiral()` in
+`ScreensaverView.qml` for exactly what they compute.
+
+Jump straight to any scene by index (0=RAY, 1=BIRD, 2=WING, 3=WAVE,
+4=SPIRAL) without disturbing the rotation itself:
+
+```sh
+omarchy-shell ray-screensaver previewIndex 3   # WAVE, say
+```
 
 ## Known limitations
 
-- The RAY→BIRD→WING rotation only persists for as long as `omarchy-shell`
-  keeps running (`keepLoaded: true` keeps this plugin's state alive between
-  idle cycles, but a full shell restart resets it) — it does not survive a
-  logout/login the way the desktop-only prototype's on-disk state file did.
-- No per-user tuning knobs yet (point count, zoom, hold duration) —
-  everything is fixed at the values that looked right during
+- The rotation only persists for as long as `omarchy-shell` keeps running
+  (`keepLoaded: true` keeps this plugin's state alive between idle cycles,
+  but a full shell restart resets it) — it does not survive a logout/login
+  the way the desktop-only prototype's on-disk state file did.
+- No per-user tuning knobs yet (point count, zoom, which scenes are in the
+  rotation) — everything is fixed at the values that looked right during
   development. Contributions welcome.
 
 ## License

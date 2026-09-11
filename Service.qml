@@ -3,15 +3,17 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
+import "Presets.js" as Presets
 
 // Clone of Omarchy's stock idle service (omarchy.idle — see manifest.json's
 // "clonedFrom"). Idle timing, the lock timer, and stay-awake are unchanged;
-// the only difference is *what plays* at the screensaver timeout: three
-// in-process QML surfaces (RAY, BIRD, WING — see ScreensaverView.qml) instead
-// of the stock terminal-based omarchy-launch-screensaver. Because the
-// screensaver is now rendered inside this same plugin instead of spawned as
-// an external process, there is no window-class tracking to do: showing and
-// hiding it is a single property flip.
+// the only difference is *what plays* at the screensaver timeout: one
+// in-process QML scene per activation (see ScreensaverView.qml and
+// Presets.js) instead of the stock terminal-based
+// omarchy-launch-screensaver. Because the screensaver is now rendered
+// inside this same plugin instead of spawned as an external process, there
+// is no window-class tracking to do: showing and hiding it is a single
+// property flip.
 Item {
   id: root
 
@@ -41,11 +43,13 @@ Item {
   property string lastEvent: "starting"
   property string lastEventAt: ""
 
-  // Rotates one step through RAY / BIRD / WING every time the screensaver is
-  // shown, so successive idle activations cycle through all three scenes
-  // instead of always opening on the same one. Starts at 2 so the very first
-  // launch of a shell session lands on RAY (index 0): (2 + 1) % 3 = 0.
-  property int screensaverPresetIndex: 2
+  // Rotates one step through every scene in Presets.js each time the
+  // screensaver is shown — one scene per activation, unlocking (or any
+  // other dismiss) makes it go away, and the *next* activation is a
+  // different scene, cycling through all of them before repeating. Starts
+  // one step before the first entry so the very first launch of a shell
+  // session lands on scene 0.
+  property int screensaverPresetIndex: Presets.PRESETS.length - 1
   property bool screensaverActive: false
 
   function secondsFromConfig(value, fallback) {
@@ -78,25 +82,20 @@ Item {
 
   function launchScreensaver() {
     root.screensaverStartedThisCycle = true
-    root.screensaverPresetIndex = (root.screensaverPresetIndex + 1) % 3
+    root.screensaverPresetIndex = (root.screensaverPresetIndex + 1) % Presets.PRESETS.length
     root.screensaverActive = true
     logEvent("screensaver-shown", "preset=" + root.screensaverPresetIndex)
   }
 
-  // Shows an arbitrary preset index without touching the RAY/BIRD/WING
-  // rotation counter above — for trying out experimental scenes (see
-  // Presets.js) via the previewIndex IPC call without disturbing it.
+  // Shows an arbitrary preset index without touching the rotation counter
+  // above — for jumping straight to one scene (testing, or a menu entry)
+  // without disturbing where the rotation itself is.
   function launchScreensaverAt(idx) {
     root.screensaverStartedThisCycle = true
     root.screensaverPresetIndex = idx
     root.screensaverActive = true
     logEvent("screensaver-shown", "preset=" + idx + " (pinned)")
   }
-
-  // Every screensaverHoldSeconds while shown, move every monitor's surface to
-  // the next preset at the same instant (see Service.qml's Variants block —
-  // each PanelWindow's ScreensaverView just mirrors this property).
-  readonly property int screensaverHoldSeconds: 14
 
   function hideScreensaver(reason) {
     if (!root.screensaverActive) return
@@ -233,14 +232,6 @@ Item {
     interval: root.lockDelaySeconds * 1000
     repeat: false
     onTriggered: if (root.idleEnabled && root.idledThisCycle) root.lockSystem("lock-timeout")
-  }
-
-  Timer {
-    id: holdTimer
-    interval: root.screensaverHoldSeconds * 1000
-    running: root.screensaverActive
-    repeat: true
-    onTriggered: root.screensaverPresetIndex = (root.screensaverPresetIndex + 1) % 3
   }
 
   Process {
