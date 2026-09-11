@@ -34,23 +34,29 @@ repeating.
 
 ```sh
 omarchy plugin add https://github.com/riccardolanza05/omarchy-ray-screensaver --enable
+omarchy restart shell
 ```
 
 That's the whole install — no dependencies to fetch and no build step.
 Drift is pure QML/JavaScript running inside `omarchy-shell` (Quickshell +
 Qt6, which every Omarchy install already has); it adds nothing to your
 system beyond the plugin's own files under
-`~/.config/omarchy/plugins/<id>/`.
+`~/.config/omarchy/plugins/<id>/`. The restart is needed: the shell loads
+the new service before it fully lets go of the stock one, so a couple of
+things (like the IPC calls under "Try it" below) only answer correctly
+after that restart.
 
 Drift **clones Omarchy's stock idle service** (`omarchy.idle`) instead of
 running alongside it — the same pattern the
 [Lock Screen Explorer](https://github.com/sirjul1337/lock-explorer) plugin
 uses for `omarchy.lock`. It reproduces the stock idle → screensaver → lock
 timeline exactly (same timeouts, same stay-awake behaviour); the only
-difference is *what's drawn* at the screensaver stage. Because of this,
-**enabling Drift disables the stock `omarchy.idle` service** — expected
-and required (running two idle services at once would double-fire every
-idle event), and reversible any time.
+difference is *what's drawn* at the screensaver stage. The manifest's
+`clonedFrom: omarchy.idle` is what tells `omarchy plugin add --enable` to
+swap the two automatically — **you end up with the stock `omarchy.idle`
+service disabled and Drift enabled in its place**, not both running at
+once (which would double-fire every idle event). Nothing else on your
+system is touched, and it's reversible any time — see "Uninstall" below.
 
 ### Uninstall / going back to the stock screensaver
 
@@ -153,4 +159,6 @@ and a real idle-cycle test) before being committed.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](./LICENSE). `Service.qml` is based on the built-in
+`omarchy.idle` service from [Omarchy](https://github.com/omacom/omarchy)
+(MIT).
