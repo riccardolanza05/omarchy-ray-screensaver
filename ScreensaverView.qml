@@ -26,12 +26,14 @@ Item {
   property real presetStartedAt: 0
   property real activatedAt: 0
 
-  // Higher than the site's own 3600: measured at 46-60fps live across all
-  // five scenes at this count, so there was headroom to push density up
-  // rather than down. Only affordable because of the dotBig/dotSmall split
-  // below — path-and-tessellate every point (what an earlier version did)
-  // measured ~5fps at 3600, let alone 4500.
-  readonly property int pointCount: 4500
+  // Picked to hold a steady 58-61fps on the heaviest scene (RAY) — dialled
+  // down from a denser 4500 (measured 46-60fps, occasionally short of 60)
+  // for a firm 60fps instead, then nudged back up slightly from an
+  // initial 1400 for a bit more density at the same frame rate. The
+  // dotBig/dotSmall split below (see there) is what makes any of this
+  // affordable — path-and-tessellate every point (what an earlier version
+  // did) measured ~5fps at 3600.
+  readonly property int pointCount: 1700
 
   // Unit-circle vertices for an 8-sided dot polygon, built once (not per
   // point, not per frame), used only for the "big" 1-in-29 dots — see
