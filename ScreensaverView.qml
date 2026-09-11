@@ -26,17 +26,18 @@ Item {
   property real presetStartedAt: 0
   property real activatedAt: 0
 
-  // The site's own point count (3600) measured at ~5fps here with round
-  // dots — Qt's Canvas tessellates each one into curves internally, and
-  // that (not the point-placement maths, which stays under 3ms even at
-  // 3600) turned out to be the real per-frame cost. Traded down for frame
-  // rate: 900 points renders at ~40-50fps.
-  readonly property int pointCount: 900
+  // Higher than the site's own 3600: measured at 46-60fps live across all
+  // five scenes at this count, so there was headroom to push density up
+  // rather than down. Only affordable because of the dotBig/dotSmall split
+  // below — path-and-tessellate every point (what an earlier version did)
+  // measured ~5fps at 3600, let alone 4500.
+  readonly property int pointCount: 4500
 
   // Unit-circle vertices for an 8-sided dot polygon, built once (not per
-  // point, not per frame). Straight lineTo() segments rasterize far cheaper
-  // than ctx.arc()'s curve tessellation, and at the 1-3px sizes these dots
-  // render at, an octagon looks just as round.
+  // point, not per frame), used only for the "big" 1-in-29 dots — see
+  // dotBig/dotSmall below. Straight lineTo() segments rasterize far cheaper
+  // than ctx.arc()'s curve tessellation, and at the size those dots render
+  // at, an octagon looks just as round.
   readonly property var octX: [1, 0.7071, 0, -0.7071, -1, -0.7071, 0, 0.7071]
   readonly property var octY: [0, 0.7071, 1, 0.7071, 0, -0.7071, -1, -0.7071]
 
@@ -73,12 +74,21 @@ Item {
     renderTarget: Canvas.FramebufferObject
     renderStrategy: Canvas.Cooperative
 
-    // Stamps one point's octagon into the currently-open path — shared by
-    // every scene's paint function below.
-    function dot(ctx, x, y, r) {
+    // Stamps one point's octagon into the currently-open path — for the
+    // "big" 1-in-29 dots, which are large enough that their shape actually
+    // reads. Everything else uses plain fillRect() instead (see dotSmall
+    // below): at the ~1px size the other 28/29 render at, square vs. round
+    // is not distinguishable, and skipping path/tessellation entirely for
+    // the vast majority of points is what makes a much higher point count
+    // affordable.
+    function dotBig(ctx, x, y, r) {
       var ox = root.octX, oy = root.octY
       ctx.moveTo(x + ox[0] * r, y + oy[0] * r)
       for (var v = 1; v < 8; v++) ctx.lineTo(x + ox[v] * r, y + oy[v] * r)
+    }
+
+    function dotSmall(ctx, x, y, r) {
+      ctx.fillRect(x - r, y - r, r + r, r + r)
     }
 
     // The setupHeroRay() formula (see the file header). `g` bundles the
@@ -108,7 +118,8 @@ Item {
           var x = g.originX + (q + ORB * cos(angle) + CX) * g.scale
           var py = g.originY + (q * sin(angle) + distance * YS + CY + offsetY) * g.scale
           if (x < 0 || x > g.w || py < 0 || py > g.h) continue
-          dot(ctx, x, py, (i % 29) === 0 ? g.radiusLarge : g.radiusSmall)
+          if ((i % 29) === 0) dotBig(ctx, x, py, g.radiusLarge)
+          else dotSmall(ctx, x, py, g.radiusSmall)
         }
         ctx.fill()
       }
@@ -137,7 +148,8 @@ Item {
           var x = g.centerX + (nx * 12) * g.scale
           var py = g.centerY + (ny * 12 + height * 6) * g.scale
           if (x < 0 || x > g.w || py < 0 || py > g.h) continue
-          dot(ctx, x, py, hn > 0.55 ? g.radiusLarge : g.radiusSmall)
+          if (hn > 0.55) dotBig(ctx, x, py, g.radiusLarge)
+          else dotSmall(ctx, x, py, g.radiusSmall)
         }
         ctx.fill()
       }
@@ -162,7 +174,8 @@ Item {
           var x = g.centerX + (radius * cos(angle)) * g.scale
           var py = g.centerY + (radius * sin(angle)) * g.scale
           if (x < 0 || x > g.w || py < 0 || py > g.h) continue
-          dot(ctx, x, py, (i % 29) === 0 ? g.radiusLarge : g.radiusSmall)
+          if ((i % 29) === 0) dotBig(ctx, x, py, g.radiusLarge)
+          else dotSmall(ctx, x, py, g.radiusSmall)
         }
         ctx.fill()
       }
