@@ -21,20 +21,23 @@ Item {
   property var shell: null
 
   readonly property string home: Quickshell.env("HOME")
-  readonly property string stayAwakeStateDir: home + "/.local/state/omarchy/indicators"
-  readonly property string stayAwakeStatePath: stayAwakeStateDir + "/stay-awake"
+
+  // Own install directory, per Omarchy's plugin layout (PluginRegistry.qml:
+  // pluginsDir = $HOME/.config/omarchy/plugins, one subdirectory per
+  // manifest id) — used to locate the bundled persist-stay-awake.py helper
+  // below.
+  readonly property string pluginDir: home + "/.config/omarchy/plugins/io.github.riccardolanza05.omarchy-ray-screensaver"
+  readonly property string persistScriptPath: pluginDir + "/persist-stay-awake.py"
 
   // Trusted, absolute identities for every external command this service
   // runs, resolved once here rather than looked up by name (PATH) at
   // invocation time. Idle/lock/wake is a security-sensitive boundary — an
   // unqualified command name there is one a compromised PATH could
   // redirect. Every Process below uses these directly with a plain
-  // argument vector — no shell at all, anywhere in this file (see the
-  // stay-awake FileView further down for why that state no longer needs
-  // one either).
+  // argument vector — no shell at all, anywhere in this file.
   readonly property string lockBin: "/usr/share/omarchy/bin/omarchy-system-lock"
   readonly property string wakeBin: "/usr/share/omarchy/bin/omarchy-system-wake"
-  readonly property string mkdirBin: "/usr/bin/mkdir"
+  readonly property string python3Bin: "/usr/bin/python3"
   readonly property int defaultScreensaverSeconds: 150
   readonly property int defaultLockSeconds: 300
   readonly property var idleConfig: shell && shell.shellConfig && shell.shellConfig.idle
@@ -80,7 +83,7 @@ Item {
   }
 
   // `argv` is a plain argument vector (executable first) run directly, with
-  // no shell involved — see the comment on lockBin/wakeBin/mkdirBin above.
+  // no shell involved — see the comment on lockBin/wakeBin/python3Bin above.
   function runProcess(process, label, argv) {
     if (process.running) {
       logEvent("process-skip", label + " already running")
@@ -198,18 +201,24 @@ Item {
     })
   }
 
-  // Persists through stayAwakeFile (a FileView, see further down) instead
-  // of a shell script that checks the marker path is safe and then acts
-  // on it in a separate step — a security reviewer correctly pointed out
-  // that gap is a TOCTOU race (the path can be swapped between the check
-  // and the touch/rm that follows it), and a "check more carefully first"
-  // fix cannot close a race that is inherent to check-then-act in the
-  // first place. FileView's own atomic write (setText(), backed by Qt's
-  // QSaveFile: write a new temp file, then rename it over the target) has
-  // no such gap — there is no separate check to race against; it either
-  // writes the file or it doesn't, in one step.
+  // Persists through the bundled persist-stay-awake.py helper rather than
+  // a FileView/QSaveFile write. A second security review round correctly
+  // pointed out that QSaveFile's atomic rename only protects the final
+  // path component — it still *resolves* every ancestor directory
+  // (~/.local/state/omarchy/indicators) by name, so a symlink planted at
+  // any of those levels before this runs gets followed, same as the
+  // original TOCTOU the first fix addressed, just one level up. Fixing
+  // that requires never resolving those ancestors by name at all: the
+  // helper walks from $HOME one component at a time, opening each with
+  // O_NOFOLLOW *relative to the already-opened, already-validated parent's
+  // fd* (dir_fd=) and requiring it to be an owned, non-symlink directory
+  // before descending further. A symlink at any level makes that one
+  // open() call fail outright instead of being followed — there is no
+  // separate check-then-open step for a race to land in. See its own
+  // docstring for the full reasoning and the final write's atomicity.
   function persistStayAwake(value) {
-    stayAwakeFile.setText(value ? "on\n" : "off\n")
+    runProcess(persistStayAwakeProc, "persist-stay-awake",
+      [root.python3Bin, root.persistScriptPath, value ? "on" : "off"])
   }
 
   function applyStayAwake(value, persist, reason) {
@@ -265,39 +274,39 @@ Item {
     onExited: function(exitCode, exitStatus) { root.logEvent("process-exit", "wake exitCode=" + exitCode + " status=" + exitStatus) }
   }
 
-  // Reads and writes the stay-awake marker through Qt's own file I/O
-  // instead of a shell probe — see the comment on persistStayAwake above.
-  // No other Omarchy component reads this path (checked: grepped the
-  // whole stock shell tree — only omarchy.idle's own Service.qml, which
-  // this plugin clones, ever touched it), so there is no compatibility
-  // reason to keep the old "file exists" convention; content ("on"/"off")
-  // is simpler and lets FileView do all the work. Absent (fresh install,
-  // stay-awake never turned on) is treated the same as "off".
-  FileView {
-    id: stayAwakeFile
-    path: root.stayAwakeStatePath
-    watchChanges: true
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.applyStayAwake(text().trim() === "on", false, "state-file")
-    onLoadFailed: root.applyStayAwake(false, false, "state-file-absent")
-    onFileChanged: reload()
+  // Reads the stay-awake marker through persist-stay-awake.py (see
+  // persistStayAwake above for why this replaced a FileView). No other
+  // Omarchy component reads this path (checked: grepped the whole stock
+  // shell tree — only omarchy.idle's own Service.qml, which this plugin
+  // clones, ever touched it), so there is no compatibility reason to keep
+  // the old "file exists" convention; content ("on"/"off") is simpler.
+  // Any failure (absent file, refused symlink at some level, anything
+  // else) falls back to "off" — fail-closed to idle/lock staying enabled
+  // rather than silently staying disabled forever because of a stuck
+  // attack attempt.
+  Process {
+    id: loadStayAwakeProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyStayAwake(text.trim() === "on", false, "state-file")
+    }
+    onExited: function(exitCode, exitStatus) {
+      if (exitCode !== 0) root.logEvent("stay-awake-load-failed", "exitCode=" + exitCode)
+    }
   }
 
-  // The state directory needs to exist before stayAwakeFile can write into
-  // it. Fired once at startup — every other Omarchy indicator already
-  // relies on the same directory, so in practice this is nearly always a
-  // no-op by the time it matters (persistStayAwake only ever runs off a
-  // real IPC/UI call, never automatically at startup).
   Process {
-    id: ensureStateDirProc
-    command: [root.mkdirBin, "-p", "--", root.stayAwakeStateDir]
+    id: persistStayAwakeProc
+    onExited: function(exitCode, exitStatus) {
+      if (exitCode !== 0) root.logEvent("stay-awake-persist-failed", "exitCode=" + exitCode)
+    }
   }
 
   Component.onCompleted: {
     logEvent("service-ready")
-    ensureStateDirProc.running = true
-    Qt.callLater(function() { stayAwakeFile.reload() })
+    Qt.callLater(function() {
+      runProcess(loadStayAwakeProc, "stay-awake-load", [root.python3Bin, root.persistScriptPath, "load"])
+    })
   }
 
   IpcHandler {
